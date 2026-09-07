@@ -57,7 +57,10 @@ compared against the reloaded output — vertical metrics, ``head`` bounding box
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
+import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -91,10 +94,13 @@ __all__ = [
     "STYLES",
     "assemble",
     "build",
+    "build_info",
     "import_scale",
     "invariants",
     "load_family",
     "open_source_font",
+    "source_date_epoch",
+    "write_build_info",
 ]
 
 
@@ -248,6 +254,11 @@ class Family:
 
 def family_path_for(root: Path) -> Path:
     return root / "sources" / "family.toml"
+
+
+def fonts_dir_for(root: Path) -> Path:
+    """Where everything the build ships is written (gitignored, Q3)."""
+    return root / "fonts"
 
 
 def load_family(path: Path) -> Family:
@@ -416,9 +427,16 @@ class Invariants:
 
 
 def invariants(font: TTFont) -> Invariants:
-    """Read the frozen values off a font."""
+    """Read the frozen values off a font.
+
+    Every variation table is read through ``font.get`` so that the same reader
+    measures a *static* instance, where ``fvar``, ``avar`` and ``MVAR`` are gone
+    by design: instancing empties those three fields and leaves every other one
+    alone, which is exactly the shape of the check
+    :mod:`asterwell_build.instances` runs on the 16 statics.
+    """
     hhea, os2, head = font["hhea"], font["OS/2"], font["head"]
-    fvar = font["fvar"]
+    fvar = font.get("fvar")
     avar = font.get("avar")
     mvar = font.get("MVAR")
     return Invariants(
@@ -434,12 +452,18 @@ def invariants(font: TTFont) -> Invariants:
         advance_width_max=hhea.advanceWidthMax,
         head_bbox=(head.xMin, head.yMin, head.xMax, head.yMax),
         units_per_em=head.unitsPerEm,
-        fvar_axes=tuple(
-            (a.axisTag, a.minValue, a.defaultValue, a.maxValue) for a in fvar.axes
+        fvar_axes=(
+            tuple((a.axisTag, a.minValue, a.defaultValue, a.maxValue) for a in fvar.axes)
+            if fvar is not None
+            else ()
         ),
-        fvar_instances=tuple(
-            (i.subfamilyNameID, tuple(sorted(i.coordinates.items())))
-            for i in fvar.instances
+        fvar_instances=(
+            tuple(
+                (i.subfamilyNameID, tuple(sorted(i.coordinates.items())))
+                for i in fvar.instances
+            )
+            if fvar is not None
+            else ()
         ),
         mvar=(
             tuple(record.ValueTag for record in mvar.table.ValueRecord)
@@ -879,19 +903,31 @@ def set_optical_size_elidable(font: TTFont, value: float = 12.0) -> int:
     return changed
 
 
+def source_date_epoch() -> int | None:
+    """``SOURCE_DATE_EPOCH`` as an integer, or ``None`` when the build sets none.
+
+    One reader for the two places the value is used: the timestamp stamped into
+    every font, and the value recorded in ``BUILD-INFO.json``.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if not epoch:
+        return None
+    try:
+        return int(epoch)
+    except ValueError as exc:
+        raise AssembleError(f"SOURCE_DATE_EPOCH is not an integer: {epoch!r}") from exc
+
+
 def stamp_timestamp(font: TTFont) -> None:
     """``head.modified`` from ``SOURCE_DATE_EPOCH`` when the build sets one.
 
     ``head.created`` is never touched: the family's outlines are Literata's, and
     so is the date they were first drawn.
     """
-    epoch = os.environ.get("SOURCE_DATE_EPOCH")
-    if not epoch:
+    epoch = source_date_epoch()
+    if epoch is None:
         return
-    try:
-        font["head"].modified = timestampSinceEpoch(int(epoch))
-    except ValueError as exc:
-        raise AssembleError(f"SOURCE_DATE_EPOCH is not an integer: {epoch!r}") from exc
+    font["head"].modified = timestampSinceEpoch(epoch)
 
 
 # --------------------------------------------------------------------------- #
@@ -1054,7 +1090,7 @@ def assemble_style(
             + "\n  ".join(drift)
         )
 
-    output = root / "fonts" / "variable" / output_name(family, style)
+    output = fonts_dir_for(root) / "variable" / output_name(family, style)
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(work, output)
 
@@ -1097,12 +1133,13 @@ def _report(report: StyleReport, log: Log) -> None:
 def assemble(
     root: Path | None = None,
     *,
+    family: Family | None = None,
     styles: Iterable[Style] = STYLES,
     log: Log = print,
 ) -> list[StyleReport]:
     """Assemble every style: the variable-font stage of ``asterwell-build build``."""
     root = root if root is not None else upstream.default_root()
-    family = load_family(family_path_for(root))
+    family = family if family is not None else load_family(family_path_for(root))
     parameters = stars.load_parameters(stars.parameters_path_for(root))
     rules = allowlist.load_rules(allowlist.rules_path_for(root))
     rows = allowlist.read_tsv(allowlist.tsv_path_for(root))
@@ -1128,13 +1165,130 @@ def _logger(quiet: bool) -> Log:
     return log
 
 
-def build(root: Path | None = None, *, quiet: bool = False) -> int:
-    """``asterwell-build build`` — assemble the family.
+# --------------------------------------------------------------------------- #
+# BUILD-INFO.json
+# --------------------------------------------------------------------------- #
 
-    Today that is the two variable fonts; the static instances and the WOFF2
-    web fonts are Step 7 and hang off the same command.
+#: Filename of the build manifest, written into ``fonts/`` beside the outputs
+#: it describes (and shipped in the release zip, where ``fonts/`` is the root —
+#: which is why the output paths it records are relative to that directory).
+BUILD_INFO_NAME = "BUILD-INFO.json"
+
+#: Installed distributions whose version the manifest records, alongside the
+#: interpreter's — the four names §7.7 asks for. fontTools compiles every byte
+#: that ships; uharfbuzz and fontbakery decide whether it ships at all.
+BUILD_INFO_TOOLS = ("fonttools", "uharfbuzz", "fontbakery")
+
+
+def tool_versions() -> dict[str, str]:
+    """The interpreter and library versions this build ran with (§7.7).
+
+    Read from the installed distributions rather than from ``pyproject.toml``:
+    what a rebuild has to reproduce is what actually ran, not what was asked for.
     """
-    assemble(root, log=_logger(quiet))
+    versions = {"python": platform.python_version()}
+    for distribution in BUILD_INFO_TOOLS:
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError as exc:  # pragma: no cover
+            raise AssembleError(
+                f"{distribution} is not installed — run `mise run setup`"
+            ) from exc
+    return versions
+
+
+def input_hashes(root: Path) -> dict[str, str]:
+    """Every pinned upstream member, keyed by its path under ``build/upstream``.
+
+    Taken from the ``.verified`` manifest rather than re-hashed here: those are
+    the digests ``fetch`` checked the downloaded bytes against, so recording
+    them ties the outputs to a verified input rather than to whatever is on disk.
+    """
+    verified = upstream.read_verified(root)
+    archives = verified.get("archives", {})
+    if not isinstance(archives, dict) or not archives:
+        raise AssembleError(
+            f"{upstream.upstream_dir_for(root) / upstream.VERIFIED_NAME} lists no "
+            "archives — run `mise run fetch`"
+        )
+    hashes: dict[str, str] = {}
+    for key, archive in sorted(archives.items()):
+        directory = archive.get("dir", key)
+        for member, digest in sorted(archive.get("members", {}).items()):
+            hashes[f"{directory}/{member}"] = digest
+    return hashes
+
+
+def build_info(root: Path, family: Family, outputs: Iterable[Path]) -> dict[str, object]:
+    """The ``BUILD-INFO.json`` payload (§7.7).
+
+    Everything a rebuild needs to be checked against this one: the version, the
+    timestamp the build was pinned to, the tools that ran, the verified inputs,
+    the allowlist that decided the coverage, and a digest per shipped file.
+    """
+    fonts_dir = fonts_dir_for(root)
+    return {
+        "version": family.version,
+        "source_date_epoch": source_date_epoch(),
+        "tools": tool_versions(),
+        "inputs": input_hashes(root),
+        "allowlist_sha256": upstream.sha256_file(allowlist.tsv_path_for(root)),
+        "outputs": {
+            path.relative_to(fonts_dir).as_posix(): upstream.sha256_file(path)
+            for path in sorted(outputs)
+        },
+    }
+
+
+def write_build_info(
+    root: Path, family: Family, outputs: Iterable[Path], log: Log = print
+) -> Path:
+    """Write ``fonts/BUILD-INFO.json``. Deterministic: same inputs, same bytes."""
+    path = fonts_dir_for(root) / BUILD_INFO_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_info(root, family, outputs)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    log(f"build info: {path} ({len(payload['outputs'])} outputs)")  # type: ignore[arg-type]
+    return path
+
+
+# --------------------------------------------------------------------------- #
+# The whole family
+# --------------------------------------------------------------------------- #
+
+
+def build(root: Path | None = None, *, quiet: bool = False) -> int:
+    """``asterwell-build build`` — the whole family, in one command.
+
+    Four stages, in dependency order: the two variable fonts, the 16 static
+    instances cut from them, the two WOFF2 web fonts compressed from them, and
+    the manifest that hashes everything the run wrote.
+    """
+    # Imported here rather than at module scope, and only here: `instances`
+    # needs this module's vocabulary (Family, Invariants, open_source_font), so
+    # the dependency runs one way — instances → assemble — everywhere except in
+    # this function, which is the pipeline and therefore the one place that has
+    # to know about every stage.
+    from asterwell_build import instances, web
+
+    root = root if root is not None else upstream.default_root()
+    log = _logger(quiet)
+    family = load_family(family_path_for(root))
+
+    variable = assemble(root, family=family, log=log)
+    statics = instances.build_statics(variable, family=family, root=root, log=log)
+    webfonts = web.build_webfonts(variable, root=root, log=log)
+
+    write_build_info(
+        root,
+        family,
+        [
+            *(report.output for report in variable),
+            *(report.output for report in statics),
+            *(report.output for report in webfonts),
+        ],
+        log=log,
+    )
     return 0
 
 
