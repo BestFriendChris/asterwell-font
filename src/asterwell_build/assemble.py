@@ -211,9 +211,27 @@ DESCRIPTION = (
 # --------------------------------------------------------------------------- #
 
 
+#: The one version spelling, everywhere (§15.4): an integer major with no
+#: leading zero, a dot, and exactly three minor digits — ``0.001``, ``0.010``,
+#: ``2.017``. The three digits are not decoration: ``head.fontRevision`` is a
+#: number installers compare, so ``1.10`` would sort *below* ``1.9`` while
+#: ``1.010 > 1.009`` sorts as read. :mod:`asterwell_build.package` reads tags
+#: and ChangeLog entries against this same pattern, so there is one grammar.
+VERSION_PATTERN = r"(0|[1-9][0-9]*)\.([0-9]{3})"
+
+VERSION_RE = re.compile(rf"^{VERSION_PATTERN}$")
+
+
 @dataclass(frozen=True)
 class Family:
-    """What ``sources/family.toml`` says the family is called and claims."""
+    """What ``sources/family.toml`` says the family is called and claims,
+    stamped with the version this build carries.
+
+    The version is the one field that does *not* come from the file: it is
+    resolved per build from ``ASTERWELL_VERSION``, from a ``v*`` tag at HEAD,
+    or as the ``0.000`` dev build — see
+    :func:`asterwell_build.package.resolve_version` and §15.4.
+    """
 
     family: str
     ps_family: str
@@ -232,7 +250,7 @@ class Family:
 
     @property
     def font_revision(self) -> float:
-        """``head.fontRevision``: the version as a number (``1.000`` → 1.0)."""
+        """``head.fontRevision``: the version as a number (``0.002`` → 0.002)."""
         try:
             return float(self.version)
         except ValueError as exc:  # pragma: no cover - guarded by load_family
@@ -265,8 +283,17 @@ def fonts_dir_for(root: Path) -> Path:
     return root / "fonts"
 
 
-def load_family(path: Path) -> Family:
-    """Parse and validate ``family.toml``."""
+def load_family(path: Path, version: str) -> Family:
+    """Parse and validate ``family.toml``, stamped with this build's version.
+
+    ``version`` is resolved before the file is read —
+    :func:`asterwell_build.package.resolve_version` returns it from
+    ``ASTERWELL_VERSION``, from a ``v*`` tag at HEAD, or as the ``0.000`` dev
+    build — because since §15.4 the family's version is the newest
+    ``FONTLOG.txt`` ChangeLog entry, recorded by the tag the release workflow
+    creates. A ``version`` key left in the TOML is therefore a second source of
+    truth and is refused, not ignored.
+    """
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -282,10 +309,21 @@ def load_family(path: Path) -> Family:
             raise AssembleError(f"{path}: `{key}` must be a non-empty string")
         return value
 
+    if "version" in raw:
+        raise AssembleError(
+            f"{path}: version comes from FONTLOG.txt's ChangeLog now — remove it "
+            "from sources/family.toml (see README, Releasing)"
+        )
+    if not VERSION_RE.match(version):
+        raise AssembleError(
+            f"version {version!r} must be M.mmm — an integer major with no leading "
+            'zero, a dot, and exactly three minor digits (e.g. "0.001")'
+        )
+
     family = Family(
         family=string("family"),
         ps_family=string("ps_family"),
-        version=string("version"),
+        version=version,
         vendor_id=string("vendor_id"),
         repo_url=string("repo_url"),
         license_url=string("license_url"),
@@ -293,12 +331,6 @@ def load_family(path: Path) -> Family:
         copyright_year=string("copyright_year"),
         reserved_font_name=string("reserved_font_name", allow_empty=True),
     )
-    try:
-        float(family.version)
-    except ValueError as exc:
-        raise AssembleError(
-            f"{path}: `version` must be a number like \"1.000\", got {family.version!r}"
-        ) from exc
     if len(family.vendor_id) > 4:
         raise AssembleError(
             f"{path}: `vendor_id` must be at most four characters, got {family.vendor_id!r}"
@@ -1278,12 +1310,16 @@ def build(root: Path | None = None, *, quiet: bool = False) -> int:
     # needs this module's vocabulary (Family, Invariants, open_source_font), so
     # the dependency runs one way — instances → assemble — everywhere except in
     # this function, which is the pipeline and therefore the one place that has
-    # to know about every stage.
-    from asterwell_build import instances, web
+    # to know about every stage. `package` is deferred for the same reason from
+    # the other side: it imports this module, and every stage that needs a
+    # version calls into it (§15.4).
+    from asterwell_build import instances, package, web
 
     root = root if root is not None else upstream.default_root()
     log = _logger(quiet)
-    family = load_family(family_path_for(root))
+    resolved = package.resolve_version(root)
+    log(f"version: {resolved}")
+    family = load_family(family_path_for(root), resolved.version)
 
     variable = assemble(root, family=family, log=log)
     statics = instances.build_statics(variable, family=family, root=root, log=log)
@@ -1311,10 +1347,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """``asterwell-build build`` — see :func:`build`."""
+    # Deferred for the cycle `build` documents: a malformed ASTERWELL_VERSION is
+    # a message, not a traceback, so its error type has to be catchable here.
+    from asterwell_build.package import PackageError
+
     try:
         return build(quiet=getattr(args, "quiet", False))
     except (
         AssembleError,
+        PackageError,
         allowlist.AllowlistError,
         stars.StarsError,
         upstream.UpstreamError,

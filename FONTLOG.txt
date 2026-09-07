@@ -16,7 +16,6 @@ keep their form at every weight; in the italic the stars turn but do
 not slant.
 
     Family      Asterwell Text
-    Version     1.000
     Vendor ID   ASTW
     License     SIL Open Font License, Version 1.1 (see OFL.txt)
     Repository  https://github.com/BestFriendChris/asterwell-font
@@ -117,7 +116,7 @@ sources/allowlist.tsv, together with the source of its outline:
                over DejaVu's), except where the row's note column
                records a per-code-point override
 
-As of version 1.000 that file has 532 rows: 8 custom, 24 literata and
+As of this writing that file has 532 rows: 8 custom, 24 literata and
 500 dejavu. The file is generated from the pinned upstream fonts and
 checked in, so changing an upstream pin or an allowlist rule produces a
 reviewable coverage diff rather than a silent change in what the family
@@ -133,7 +132,13 @@ the platform's emoji font.
 ChangeLog
 ---------
 
-1.000 (2026-09-07): initial release.
+Newest first, one entry per release. Adding an entry here and merging it
+to main is the release: the entry reads "M.mmm (YYYY-MM-DD): what
+changed." at the start of a line, the minor is exactly three digits
+(0.001, 0.010, 0.999), and the version it names becomes the tag, the
+zip and the version inside the fonts. See README, "Releasing".
+
+Nothing has been released yet.
 
 
 Acknowledgements

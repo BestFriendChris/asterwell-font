@@ -24,6 +24,7 @@ What the suite pins down:
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import posixpath
 import shutil
@@ -42,10 +43,11 @@ EPOCH_STAMP = (2023, 11, 14, 22, 13, 20)
 
 VERSION = "2.500"
 
-FAMILY_TOML = f"""\
+#: What `mise run package` is told to build, the way the release workflow tells
+#: it: `family.toml` carries no version, so every packaging test sets one.
+FAMILY_TOML = """\
 family      = "Asterwell Text"
 ps_family   = "AsterwellText"
-version     = "{VERSION}"
 vendor_id   = "ASTW"
 repo_url    = "https://example.invalid/asterwell"
 license_url = "https://example.invalid/ofl"
@@ -171,10 +173,22 @@ ROWS = [
     ),
 ]
 
+#: The ChangeLog entry this synthetic release was asked for: its text is the
+#: first paragraph of the notes.
+CHANGELOG_TEXT = "the synthetic release, for the tests."
+
 DOCUMENT_TEXT = {
     "OFL.txt": "Copyright 2026 The Asterwell Text Project Authors\nSIL OFL 1.1\n",
     "DEJAVU-LICENSE.txt": "Bitstream Vera Fonts Copyright\n",
-    "FONTLOG.txt": "FONTLOG for Asterwell Text\n1. Basic font information\n",
+    "FONTLOG.txt": (
+        "FONTLOG for Asterwell Text\n"
+        "==========================\n"
+        "\n"
+        "ChangeLog\n"
+        "---------\n"
+        "\n"
+        f"{VERSION} (2026-09-07): {CHANGELOG_TEXT}\n"
+    ),
     "AUTHORS.txt": "The Asterwell Text Project Authors\n",
     "README.md": "# Asterwell Text\n\nA synthetic README.\n",
 }
@@ -234,8 +248,10 @@ def _sha256(path: Path) -> str:
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A synthetic repository, with the build's epoch in the environment."""
+    """A synthetic repository, with the build's epoch and version in the
+    environment — the two things the release workflow puts there."""
     monkeypatch.setenv("SOURCE_DATE_EPOCH", str(EPOCH))
+    monkeypatch.setenv(package.VERSION_ENV, VERSION)
     return _make_repo(tmp_path / "repo")
 
 
@@ -495,8 +511,23 @@ def notes(packaged: Path) -> str:
 
 
 def test_the_notes_name_the_family_and_its_version(notes: str) -> None:
-    assert notes.startswith(f"# Asterwell Text {VERSION}\n")
+    assert notes.startswith(f"# Asterwell Text v{VERSION}\n")
     assert f"AsterwellText-{VERSION}.zip" in notes
+
+
+def test_the_notes_open_with_the_changelog_entry(notes: str) -> None:
+    """The one human-written sentence about what changed leads the release."""
+    assert notes.splitlines()[:3] == [f"# Asterwell Text v{VERSION}", "", CHANGELOG_TEXT]
+
+
+def test_the_notes_do_without_a_changelog_entry_they_cannot_read(repo: Path) -> None:
+    """Grammar is QA's gate: packaging does not refuse to write the notes."""
+    (repo / "FONTLOG.txt").write_text("FONTLOG for Asterwell Text\n", encoding="utf-8")
+    assert package.package(repo, quiet=True) == 0
+    notes = (package.dist_dir_for(repo) / package.RELEASE_NOTES_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert notes.startswith(f"# Asterwell Text v{VERSION}\n\nAsterwell Text is ")
 
 
 def test_the_notes_carry_both_upstream_pins(notes: str) -> None:
@@ -609,59 +640,377 @@ def test_the_command_packages_the_default_root(
 
 
 # --------------------------------------------------------------------------- #
+# Versions: the grammar
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("text", "number"),
+    [
+        ("0.001", (0, 1)),
+        ("v0.001", (0, 1)),
+        ("  v0.010  ", (0, 10)),
+        ("0.999", (0, 999)),
+        ("1.000", (1, 0)),
+        ("12.345", (12, 345)),
+    ],
+)
+def test_parse_version_reads_the_one_spelling(text: str, number: tuple[int, int]) -> None:
+    assert package.parse_version(text) == number
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        # The whole reason for three digits: 0.1 sorts above 0.09 as a number.
+        ("0.1", "write 0.001"),
+        ("1.22", "write 1.022"),
+        ("1.00", "three digits"),
+        ("1.0000", "three digits"),
+        ("01.000", "write 1.000"),
+        ("1", "M.mmm"),
+        ("v1", "M.mmm"),
+        ("release-candidate", "M.mmm"),
+        ("", "M.mmm"),
+    ],
+)
+def test_parse_version_refuses_every_other_spelling(text: str, message: str) -> None:
+    with pytest.raises(package.PackageError, match=message):
+        package.parse_version(text)
+
+
+def test_format_version_is_parse_version_backwards() -> None:
+    assert package.format_version(0, 1) == "0.001"
+    assert package.format_version(1, 0) == "1.000"
+    assert package.format_version(*package.parse_version("v0.010")) == "0.010"
+
+
+# --------------------------------------------------------------------------- #
+# Versions: FONTLOG.txt's ChangeLog
+# --------------------------------------------------------------------------- #
+
+
+def _changelog(*body: str) -> str:
+    """A FONTLOG-shaped file whose ChangeLog section is ``body``."""
+    return "\n".join(
+        [
+            "FONTLOG for Asterwell Text",
+            "==========================",
+            "",
+            "ChangeLog",
+            "---------",
+            "",
+            *body,
+            "",
+            "Acknowledgements",
+            "----------------",
+            "",
+            "1998 was a good year for fonts.",
+            "",
+        ]
+    )
+
+
+def test_parse_changelog_reads_the_entries_newest_first() -> None:
+    entries = package.parse_changelog(
+        _changelog(
+            "0.010 (2026-09-10): the tenth release.",
+            "",
+            "0.009 (2026-09-09): the ninth.",
+        )
+    )
+    assert [(entry.version, entry.date, entry.text) for entry in entries] == [
+        ("0.010", "2026-09-10", "the tenth release."),
+        ("0.009", "2026-09-09", "the ninth."),
+    ]
+    assert entries[0].tag == "v0.010"
+    assert entries[0].number == (0, 10)
+
+
+def test_parse_changelog_joins_continuation_lines() -> None:
+    entries = package.parse_changelog(
+        _changelog(
+            "0.002 (2026-09-10): the stars turn in the italic,",
+            "    and the asterisks lean.",
+        )
+    )
+    assert entries[0].text == "the stars turn in the italic, and the asterisks lean."
+
+
+def test_parse_changelog_leaves_the_note_under_the_heading_alone() -> None:
+    """The checked-in ChangeLog opens with prose about how to add an entry."""
+    entries = package.parse_changelog(
+        _changelog(
+            "Newest first: an entry merged to main releases that version.",
+            "",
+            "0.001 (2026-09-08): initial release.",
+        )
+    )
+    assert [entry.version for entry in entries] == ["0.001"]
+
+
+def test_parse_changelog_reads_an_empty_changelog_as_no_entries() -> None:
+    assert package.parse_changelog(_changelog("Nothing has been released yet.")) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (("0.1 (2026-09-10): too few digits.",), "write 0.001"),
+        (("01.000 (2026-09-10): a leading zero.",), "write 1.000"),
+        (("1.0000 (2026-09-10): too many digits.",), "three digits"),
+        (("0.001 (10 September 2026): a prose date.",), "not YYYY-MM-DD"),
+        (("0.001: no date at all.",), "M.mmm \\(YYYY-MM-DD\\)"),
+        (("  0.001 (2026-09-10): indented.",), "column 0"),
+        (
+            ("0.002 (2026-09-10): out of order.", "0.003 (2026-09-11): newer, below."),
+            "newest first",
+        ),
+        (
+            ("0.002 (2026-09-10): twice.", "0.002 (2026-09-09): again."),
+            "twice",
+        ),
+    ],
+)
+def test_parse_changelog_refuses_and_says_what_to_write(
+    body: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(package.PackageError, match=message):
+        package.parse_changelog(_changelog(*body))
+
+
+def test_parse_changelog_refuses_an_entry_above_the_heading() -> None:
+    text = "0.001 (2026-09-08): stray.\n\n" + _changelog("0.002 (2026-09-10): here.")
+    with pytest.raises(package.PackageError, match="above the `ChangeLog` heading"):
+        package.parse_changelog(text)
+
+
+def test_parse_changelog_needs_the_heading() -> None:
+    with pytest.raises(package.PackageError, match="no `ChangeLog` heading"):
+        package.parse_changelog("FONTLOG for Asterwell Text\n\n0.001: nothing here.\n")
+
+
+def test_parse_changelog_stops_at_the_next_section() -> None:
+    """The acknowledgements below are prose, not a rejected entry."""
+    text = _changelog("0.001 (2026-09-08): initial release.").replace(
+        "1998 was a good year for fonts.", "0.5 (1998): a version-shaped sentence."
+    )
+    assert [entry.version for entry in package.parse_changelog(text)] == ["0.001"]
+
+
+def test_the_checked_in_changelog_parses(repo_root: Path) -> None:
+    """Whatever FONTLOG.txt says today, every build has to be able to read it."""
+    package.parse_changelog(
+        package.fontlog_path_for(repo_root).read_text(encoding="utf-8")
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Versions: what a merge would release
+# --------------------------------------------------------------------------- #
+
+
+def _entries(*versions: str) -> list[package.Entry]:
+    return [
+        package.Entry(version=version, date="2026-09-10", text="what changed.")
+        for version in versions
+    ]
+
+
+def test_nothing_is_pending_without_a_changelog_entry() -> None:
+    assert package.pending_release([], ["v0.001"]) is None
+
+
+def test_an_untagged_top_entry_is_the_pending_release() -> None:
+    assert package.pending_release(_entries("0.002", "0.001"), ["v0.001"]) == "0.002"
+
+
+def test_the_first_release_needs_no_tags_at_all() -> None:
+    assert package.pending_release(_entries("0.001"), []) == "0.001"
+
+
+def test_a_tagged_top_entry_releases_nothing() -> None:
+    assert package.pending_release(_entries("0.002", "0.001"), ["v0.001", "v0.002"]) is None
+
+
+def test_a_tag_at_head_resumes_its_own_release() -> None:
+    """A run that tagged and then failed before publishing re-runs from here."""
+    entries = _entries("0.002", "0.001")
+    tags = ["v0.001", "v0.002"]
+    assert package.pending_release(entries, tags, ["v0.002"]) == "0.002"
+    assert package.pending_release(entries, tags, ["v0.001"]) is None
+
+
+def test_a_top_entry_below_the_newest_tag_is_refused() -> None:
+    with pytest.raises(package.PackageError, match="must be greater"):
+        package.pending_release(_entries("0.001"), ["v0.002"])
+
+
+def test_two_untagged_entries_are_refused() -> None:
+    with pytest.raises(package.PackageError, match="only the top entry may be untagged"):
+        package.pending_release(_entries("0.003", "0.002", "0.001"), ["v0.001"])
+
+
+def test_versions_are_compared_as_numbers_not_as_text() -> None:
+    """`0.010 > 0.009` and `1.000 > 0.999` — the whole point of three digits."""
+    assert package.pending_release(_entries("0.010", "0.009"), ["v0.009"]) == "0.010"
+    assert package.pending_release(_entries("1.000", "0.999"), ["v0.999"]) == "1.000"
+    with pytest.raises(package.PackageError, match="must be greater"):
+        package.pending_release(_entries("0.009"), ["v0.010"])
+
+
+def test_tags_that_are_not_release_tags_are_ignored() -> None:
+    assert package.pending_release(_entries("0.001"), ["v1", "v0.1", "verified"]) == "0.001"
+
+
+# --------------------------------------------------------------------------- #
+# Versions: what this build carries
+# --------------------------------------------------------------------------- #
+
+
+def test_a_build_with_nothing_to_go_on_is_a_dev_build(tmp_path: Path) -> None:
+    resolved = package.resolve_version(tmp_path, {})
+    assert (resolved.version, resolved.source) == (package.DEV_VERSION, package.SOURCE_DEV)
+    assert not resolved.is_release
+    assert str(resolved) == "0.000 (dev build)"
+
+
+@pytest.mark.parametrize("named", ["0.002", "v0.002", " 0.002 "])
+def test_the_environment_names_the_version(tmp_path: Path, named: str) -> None:
+    resolved = package.resolve_version(tmp_path, {package.VERSION_ENV: named})
+    assert (resolved.version, resolved.source) == ("0.002", package.SOURCE_ENV)
+    assert resolved.is_release
+    assert str(resolved) == "0.002 (from ASTERWELL_VERSION)"
+
+
+def test_a_malformed_environment_version_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(package.PackageError, match="write 0.002"):
+        package.resolve_version(tmp_path, {package.VERSION_ENV: "0.2"})
+
+
+def test_an_empty_environment_version_is_no_version_at_all(tmp_path: Path) -> None:
+    resolved = package.resolve_version(tmp_path, {package.VERSION_ENV: "  "})
+    assert resolved.version == package.DEV_VERSION
+
+
+@pytest.fixture
+def tagged_checkout(tmp_path: Path) -> Path:
+    """A one-commit git repository whose HEAD carries two release tags."""
+    if shutil.which("git") is None:  # pragma: no cover - git is a dev dependency
+        pytest.skip("git is not installed")
+    root = tmp_path / "checkout"
+    root.mkdir()
+    (root / "README.md").write_text("# synthetic\n", encoding="utf-8")
+    run = lambda *argv: subprocess.run(  # noqa: E731 - one line, one meaning
+        ["git", "-C", str(root), *argv], check=True, capture_output=True
+    )
+    run("init", "-q")
+    run("config", "user.email", "tests@example.invalid")
+    run("config", "user.name", "Asterwell tests")
+    run("add", "README.md")
+    run("commit", "-qm", "synthetic")
+    run("tag", "v0.009")
+    run("tag", "v0.010")
+    run("tag", "not-a-release")
+    return root
+
+
+def test_a_tag_at_head_names_the_version(tagged_checkout: Path) -> None:
+    """The newest release tag on this commit — 0.010 outranks 0.009."""
+    resolved = package.resolve_version(tagged_checkout, {})
+    assert (resolved.version, resolved.source) == ("0.010", package.SOURCE_TAG)
+    assert resolved.is_release
+    assert str(resolved) == "0.010 (from the v0.010 tag at HEAD)"
+
+
+def test_the_environment_outranks_a_tag_at_head(tagged_checkout: Path) -> None:
+    resolved = package.resolve_version(tagged_checkout, {package.VERSION_ENV: "0.011"})
+    assert (resolved.version, resolved.source) == ("0.011", package.SOURCE_ENV)
+
+
+def test_a_directory_that_is_not_a_repository_is_a_dev_build(tmp_path: Path) -> None:
+    assert package.tags_at_head(tmp_path / "nowhere") == []
+
+
+# --------------------------------------------------------------------------- #
 # `asterwell-build version`
 # --------------------------------------------------------------------------- #
 
 
-def test_version_reads_the_family_file(repo: Path) -> None:
-    assert package.family_version(repo) == VERSION
-
-
-def test_the_repository_s_own_version_is_what_the_command_prints(
-    repo_root: Path, capsys: pytest.CaptureFixture[str]
+def test_the_command_reports_this_build_s_version(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    expected = assemble.load_family(assemble.family_path_for(repo_root)).version
+    monkeypatch.setattr(package.upstream, "default_root", lambda: repo)
     assert cli.main(["version"]) == 0
-    assert capsys.readouterr().out.strip() == expected
+    assert capsys.readouterr().out.strip() == f"{VERSION} (from ASTERWELL_VERSION)"
 
 
-@pytest.mark.parametrize("tag", [f"v{VERSION}", VERSION, f"  v{VERSION}  ", f"V{VERSION}"])
-def test_assert_tag_accepts_the_matching_tag(repo: Path, tag: str) -> None:
-    assert package.assert_tag(tag, repo) == VERSION
-
-
-def test_assert_tag_rejects_a_different_version(repo: Path) -> None:
-    with pytest.raises(package.PackageError) as error:
-        package.assert_tag("v9.000", repo)
-    message = str(error.value)
-    assert "v9.000" in message
-    assert VERSION in message
-    assert "sources/family.toml" in message
-
-
-def test_assert_tag_says_how_to_spell_a_numerically_equal_tag(repo: Path) -> None:
-    """``v2.5`` is the same number as ``2.500`` and still the wrong tag."""
-    with pytest.raises(package.PackageError, match=f"spelled exactly `v{VERSION}`"):
-        package.assert_tag("v2.5", repo)
-
-
-def test_assert_tag_rejects_something_that_is_not_a_version(repo: Path) -> None:
-    with pytest.raises(package.PackageError, match="does not match"):
-        package.assert_tag("release-candidate", repo)
-
-
-def test_the_version_command_asserts_a_tag(
-    repo_root: Path, capsys: pytest.CaptureFixture[str]
+def test_the_command_reports_a_dev_build(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    version = assemble.load_family(assemble.family_path_for(repo_root)).version
-    assert cli.main(["version", "--assert-tag", f"v{version}"]) == 0
-    assert "matches" in capsys.readouterr().out
+    monkeypatch.delenv(package.VERSION_ENV)
+    monkeypatch.setattr(package.upstream, "default_root", lambda: repo)
+    assert cli.main(["version"]) == 0
+    assert capsys.readouterr().out.strip() == "0.000 (dev build)"
 
 
-def test_the_version_command_fails_on_a_mismatched_tag(
-    repo_root: Path, capsys: pytest.CaptureFixture[str]
+def _pending(monkeypatch: pytest.MonkeyPatch, root: Path, tags: str) -> None:
+    """Point the command at ``root`` and put ``tags`` on its stdin."""
+    monkeypatch.setattr(package.upstream, "default_root", lambda: root)
+    monkeypatch.setattr(package.sys, "stdin", io.StringIO(tags))
+
+
+def test_the_command_prints_the_pending_version(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["version", "--assert-tag", "v99.999"]) == 1
+    (repo / "FONTLOG.txt").write_text(
+        _changelog("0.002 (2026-09-10): the second.", "0.001 (2026-09-08): the first."),
+        encoding="utf-8",
+    )
+    _pending(monkeypatch, repo, "v0.001\n")
+    assert cli.main(["version", "--pending"]) == 0
+    assert capsys.readouterr().out == "0.002\n"
+
+
+def test_the_command_prints_nothing_when_nothing_is_pending(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (repo / "FONTLOG.txt").write_text(
+        _changelog("0.002 (2026-09-10): the second.", "0.001 (2026-09-08): the first."),
+        encoding="utf-8",
+    )
+    _pending(monkeypatch, repo, "v0.001\nv0.002\n")
+    assert cli.main(["version", "--pending"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_the_command_resumes_a_release_tagged_at_head(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (repo / "FONTLOG.txt").write_text(
+        _changelog("0.002 (2026-09-10): the second."), encoding="utf-8"
+    )
+    _pending(monkeypatch, repo, "v0.002\n")
+    assert cli.main(["version", "--pending", "--at-head", "v0.002\n"]) == 0
+    assert capsys.readouterr().out == "0.002\n"
+
+
+def test_the_command_fails_on_a_changelog_that_cannot_release(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (repo / "FONTLOG.txt").write_text(
+        _changelog("0.001 (2026-09-08): older than the newest tag."), encoding="utf-8"
+    )
+    _pending(monkeypatch, repo, "v0.002\n")
+    assert cli.main(["version", "--pending"]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "does not match" in captured.err
+    assert "must be greater" in captured.err
+
+
+def test_at_head_without_pending_is_an_error(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(package.upstream, "default_root", lambda: repo)
+    assert cli.main(["version", "--at-head", "v0.002"]) == 1
+    assert "--pending" in capsys.readouterr().err

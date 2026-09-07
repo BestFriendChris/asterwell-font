@@ -39,10 +39,13 @@ jobs:
       # this also covers the `mise run` steps below.)
       MISE_LOCKED: "1"
     steps:
-      # Shallow is enough. The only thing the build reads from git is
-      # `git log -1 --format=%ct` — mise.toml's `build` task derives
-      # SOURCE_DATE_EPOCH from it — and that resolves on a depth-1 clone.
+      # Full history, for the tags: the ChangeLog check below compares the
+      # entries against every existing v* tag, and `actions/checkout`'s default
+      # depth-1 clone fetches none of them. (The build's own use of git —
+      # `git log -1 --format=%ct` for SOURCE_DATE_EPOCH — resolves either way.)
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # Installs python + uv from mise.lock, caches them, and exports
       # mise.toml's [env] (UV_PYTHON_DOWNLOADS=never) to the steps below.
@@ -64,6 +67,21 @@ jobs:
 
       - name: Unit tests and lockfile freshness
         run: mise run test
+
+      # The release is a FONTLOG.txt ChangeLog entry merged to main, so this is
+      # the gate that keeps a bad one out: a malformed, out-of-order or
+      # duplicate entry fails the pull request here, minutes before it could
+      # fail a release. When the entry is good, the log says what merging it
+      # will publish — informational on a pull request; only a push to main
+      # with FONTLOG.txt changed releases anything (release.yml).
+      - name: What would merging this release?
+        run: |
+          version="$(git tag -l 'v*' | mise exec -- uv run --frozen asterwell-build version --pending)"
+          if [ -n "$version" ]; then
+            echo "FONTLOG.txt's ChangeLog is pending v$version: merging this to main releases it."
+          else
+            echo "No untagged ChangeLog entry: merging this releases nothing."
+          fi
 
       - name: Build, check and package the family
         run: mise run package

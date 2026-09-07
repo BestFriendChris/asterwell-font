@@ -1,13 +1,14 @@
-# Family identity, version and notice strings. The name-table strings
-# (IDs 0, the suffix on 9, 10 and 13) are templated from these values in
-# assemble.py, and OFL.txt / FONTLOG.txt carry the same wording.
+# Family identity and notice strings. The name-table strings (IDs 0, the
+# suffix on 9, 10 and 13) are templated from these values in assemble.py,
+# and OFL.txt / FONTLOG.txt carry the same wording.
 #
-# Bumping `version` is the release ritual: edit it here, add the
-# ChangeLog line in FONTLOG.txt, commit, then tag v<version>.
+# There is deliberately no `version` here: the version is the newest
+# FONTLOG.txt ChangeLog entry, which merging to main turns into the release
+# tag and which the build reads back from it (see README, "Releasing").
+# A `version` key left in this file is refused, not ignored.
 
 family      = "Asterwell Text"
 ps_family   = "AsterwellText"
-version     = "1.000"
 vendor_id   = "ASTW"
 repo_url    = "https://github.com/BestFriendChris/asterwell-font"
 license_url = "https://openfontlicense.org"

@@ -24,7 +24,7 @@ COMMAND_HELP: dict[str, str] = {
     "qa": "Check coverage, metrics, names, shaping, licensing and fontbakery",
     "specimen": "Render fonts/specimen/index.html",
     "package": "Write fonts/dist: release zip, SHA256SUMS.txt and RELEASE-NOTES.md",
-    "version": "Report the family version from sources/family.toml",
+    "version": "Report this build's version, or --pending: what merging would release",
 }
 
 

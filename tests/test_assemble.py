@@ -793,10 +793,12 @@ def test_apply_names_leaves_the_upstream_designer_url(vf: TTFont) -> None:
 # --------------------------------------------------------------------------- #
 
 
+#: What `sources/family.toml` carries — identity and notices, and no version:
+#: since §15.4 the version is the newest FONTLOG.txt ChangeLog entry, handed to
+#: `load_family` by the build.
 FAMILY_TOML = """
 family      = "Asterwell Text"
 ps_family   = "AsterwellText"
-version     = "1.000"
 vendor_id   = "ASTW"
 repo_url    = "https://example.invalid/asterwell"
 license_url = "https://example.invalid/ofl"
@@ -806,20 +808,44 @@ reserved_font_name = "Asterwell"
 """
 
 
-def test_load_family_reads_every_field(tmp_path: Path) -> None:
+def _family_file(tmp_path: Path, text: str = FAMILY_TOML) -> Path:
     path = tmp_path / "family.toml"
-    path.write_text(FAMILY_TOML, encoding="utf-8")
-    family = assemble.load_family(path)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_load_family_reads_every_field(tmp_path: Path) -> None:
+    family = assemble.load_family(_family_file(tmp_path), "1.000")
     assert family == FAMILY
     assert family.font_revision == 1.0
     assert family.holder == "The Asterwell Text Project Authors"
     assert family.vendor_bytes() == "ASTW"
 
 
+def test_load_family_stamps_the_version_it_is_handed(tmp_path: Path) -> None:
+    """The version is the build's, not the file's — 0.000 for a dev build."""
+    assert assemble.load_family(_family_file(tmp_path), "0.000").version == "0.000"
+    assert assemble.load_family(_family_file(tmp_path), "0.002").font_revision == 0.002
+
+
+def test_load_family_refuses_a_version_key_in_the_file(tmp_path: Path) -> None:
+    """Two sources of truth is the failure §15.4 exists to prevent."""
+    path = _family_file(tmp_path, FAMILY_TOML + 'version     = "1.000"\n')
+    with pytest.raises(assemble.AssembleError, match="remove it from sources/family.toml"):
+        assemble.load_family(path, "1.000")
+
+
+@pytest.mark.parametrize("version", ["1.0", "0.1", "1.0000", "01.000", "one", ""])
+def test_load_family_refuses_a_version_that_is_not_the_one_spelling(
+    tmp_path: Path, version: str
+) -> None:
+    with pytest.raises(assemble.AssembleError, match="must be M.mmm"):
+        assemble.load_family(_family_file(tmp_path), version)
+
+
 @pytest.mark.parametrize(
     ("edit", "message"),
     [
-        ('version     = "1.000"', "must be a number"),
         ('vendor_id   = "ASTW"', "at most four"),
         ('ps_family   = "AsterwellText"', "cannot contain spaces"),
     ],
@@ -828,43 +854,41 @@ def test_load_family_rejects_malformed_metadata(
     tmp_path: Path, edit: str, message: str
 ) -> None:
     replacements = {
-        'version     = "1.000"': 'version     = "one"',
         'vendor_id   = "ASTW"': 'vendor_id   = "TOOLONG"',
         'ps_family   = "AsterwellText"': 'ps_family   = "Asterwell Text"',
     }
-    path = tmp_path / "family.toml"
-    path.write_text(FAMILY_TOML.replace(edit, replacements[edit]), encoding="utf-8")
+    path = _family_file(tmp_path, FAMILY_TOML.replace(edit, replacements[edit]))
     with pytest.raises(assemble.AssembleError, match=message):
-        assemble.load_family(path)
+        assemble.load_family(path, "1.000")
 
 
 def test_load_family_requires_the_copyright_year(tmp_path: Path) -> None:
-    path = tmp_path / "family.toml"
-    path.write_text(
+    path = _family_file(
+        tmp_path,
         "\n".join(
             line for line in FAMILY_TOML.splitlines() if "copyright_year" not in line
         ),
-        encoding="utf-8",
     )
     with pytest.raises(assemble.AssembleError, match="copyright_year"):
-        assemble.load_family(path)
+        assemble.load_family(path, "1.000")
 
 
 def test_a_missing_family_file_says_so(tmp_path: Path) -> None:
     with pytest.raises(assemble.AssembleError, match="missing family file"):
-        assemble.load_family(tmp_path / "nowhere.toml")
+        assemble.load_family(tmp_path / "nowhere.toml", "1.000")
 
 
 def test_the_checked_in_family_file_loads(repo_root: Path) -> None:
-    """The real metadata is what the build reads; it has to parse."""
-    family = assemble.load_family(assemble.family_path_for(repo_root))
+    """The real metadata is what the build reads; it has to parse — and it no
+    longer carries a version of its own."""
+    family = assemble.load_family(assemble.family_path_for(repo_root), "0.000")
     assert family.family == "Asterwell Text"
     assert family.vendor_id == "ASTW"
-    assert family.font_revision == pytest.approx(1.0)
+    assert family.font_revision == pytest.approx(0.0)
 
 
 def test_output_names_are_the_two_the_spec_promises(repo_root: Path) -> None:
-    family = assemble.load_family(assemble.family_path_for(repo_root))
+    family = assemble.load_family(assemble.family_path_for(repo_root), "0.000")
     assert [assemble.output_name(family, style) for style in assemble.STYLES] == [
         "AsterwellText[opsz,wght].ttf",
         "AsterwellText-Italic[opsz,wght].ttf",

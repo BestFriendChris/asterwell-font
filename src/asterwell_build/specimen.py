@@ -502,9 +502,15 @@ def _require_webfonts(root: Path, names: Iterable[str]) -> None:
 
 def build(root: Path | None = None, *, quiet: bool = False) -> Path:
     """Write ``fonts/specimen/index.html`` and return its path."""
+    # Deferred: `package` imports this module for the specimen's path in the
+    # release zip, so the version it resolves is reached from inside here.
+    from asterwell_build import package
+
     root = root if root is not None else upstream.default_root()
     log = _logger(quiet)
-    family = assemble.load_family(assemble.family_path_for(root))
+    family = assemble.load_family(
+        assemble.family_path_for(root), package.resolve_version(root).version
+    )
     rows = allowlist.read_tsv(allowlist.tsv_path_for(root))
     paragraphs = load_paragraphs(text_path_for(root))
     names = webfont_names(family)
@@ -539,10 +545,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """``asterwell-build specimen`` — see :func:`build`."""
+    # Deferred: see `build`. A malformed ASTERWELL_VERSION is a message here too.
+    from asterwell_build.package import PackageError
+
     try:
         build(quiet=getattr(args, "quiet", False))
     except (
         SpecimenError,
+        PackageError,
         assemble.AssembleError,
         allowlist.AllowlistError,
         upstream.UpstreamError,

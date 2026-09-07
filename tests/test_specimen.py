@@ -323,6 +323,8 @@ def test_build_refuses_when_the_web_fonts_are_not_there(tmp_path: Path) -> None:
 def test_build_writes_the_page_where_the_release_zip_expects_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repo_root: Path
 ) -> None:
+    # family.toml carries no version since §15.4: the build is told one.
+    monkeypatch.setenv("ASTERWELL_VERSION", FAMILY.version)
     fonts = tmp_path / "fonts"
     (fonts / "webfonts").mkdir(parents=True)
     for name in NAMES.values():
@@ -334,7 +336,6 @@ def test_build_writes_the_page_where_the_release_zip_expects_it(
             for key, value in (
                 ("family", FAMILY.family),
                 ("ps_family", FAMILY.ps_family),
-                ("version", FAMILY.version),
                 ("vendor_id", FAMILY.vendor_id),
                 ("repo_url", FAMILY.repo_url),
                 ("license_url", FAMILY.license_url),

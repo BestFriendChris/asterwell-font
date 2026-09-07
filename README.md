@@ -58,10 +58,11 @@ member is verified against its own checksum before the build touches it.
 Built fonts are not committed to this repository — they are published as
 assets on the
 [Releases page](https://github.com/BestFriendChris/asterwell-font/releases).
-The first release is `v1.000`; until it is tagged, build the fonts
-locally with the steps below. `mise run package` produces exactly the
-assets a release carries, byte for byte, so a local build is not a
-second-best copy of one.
+Nothing is tagged yet; the first release will be `v0.001` — see
+[Releasing](#releasing). Until then, build the fonts locally with the
+steps below. `mise run package` produces exactly the assets a release
+carries, byte for byte, so a local build is not a second-best copy of
+one.
 
 Each release carries:
 
@@ -213,11 +214,49 @@ fonts.
 
 ## Releasing
 
-1. Bump `version` in [`sources/family.toml`](sources/family.toml) and add
-   the matching ChangeLog line in `FONTLOG.txt`.
-2. Commit.
-3. Tag it: `git tag -a v1.000 -m "Asterwell Text 1.000"`.
-4. Push the tag: `git push origin v1.000`.
+A release is a ChangeLog entry. Add one line at the top of
+[`FONTLOG.txt`](FONTLOG.txt)'s `ChangeLog` section, in a pull request
+like any other change:
 
-The tag must match `sources/family.toml`; the release build checks that
-before it publishes anything.
+```
+0.002 (2026-09-10): what changed.
+```
+
+Merging it to `main` is the release. The Release workflow parses the
+ChangeLog, sees a version no tag records yet, builds and checks *that*
+commit with it, and only then tags the commit `v0.002`, publishes the
+Release with the zip and the checksums, and deploys the site. Nothing
+else is edited, bumped or tagged by hand: `sources/family.toml` carries
+no version, and the workflow commits nothing.
+
+**You write the number.** A minor release adds one to the last three
+digits (`0.001` → `0.002`); a major release moves to the next integer
+with a three-zero minor (`1.017` → `2.000`). Nothing rolls over by
+itself: `0.999` is simply the last minor of the `0` series, and moving
+to the `1` series is a number you decide to write. The only rule the
+workflow enforces is that the new version is greater than every
+existing tag.
+
+**The minor is always three digits** — `0.001`, not `0.1`. A font's
+`head.fontRevision` is a number that installers compare, so `1.10` would
+sort *below* `1.9`, while `1.010 > 1.009` sorts the way it reads. The
+same spelling is the tag, the release name, the zip and the version in
+the font menu.
+
+Along the way:
+
+- CI on the pull request tells you what merging will release, and fails
+  the pull request on an entry that is malformed, duplicated or not
+  greater than the newest tag — before it can reach `main`.
+- `asterwell-build version` says what version a build here would carry:
+  `0.000 (dev build)` unless a tag points at HEAD or
+  `ASTERWELL_VERSION` is set. `ASTERWELL_VERSION=0.002 mise run package`
+  rehearses a release build locally — QA holds it to the same rule the
+  real one meets, so `0.002`'s entry has to be at the top of the
+  ChangeLog first.
+- A push that does not touch `FONTLOG.txt` never starts the Release
+  workflow, and once the tag exists the entry is no longer pending, so
+  re-runs and later pushes publish nothing twice.
+- If a release fails, nothing was tagged: fix the cause, then re-run the
+  failed run from the Actions page (or push another `FONTLOG.txt`
+  change).

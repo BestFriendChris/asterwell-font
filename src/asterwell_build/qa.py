@@ -803,13 +803,23 @@ def name_problems(
     return problems
 
 
+#: One unit of ``head.fontRevision``. The field is a 16.16 fixed-point number,
+#: so most versions have no exact representation: ``0.002`` is written, and read
+#: back, as 0.0019989013671875 — 1.1e-6 away, which a tolerance tighter than the
+#: format's own grid would call a defect. Half a step is the real question ("is
+#: this the same number after rounding to 16.16?"), and it still separates two
+#: adjacent releases: 0.001 and 0.002 are 65 steps apart.
+FONT_REVISION_STEP = 1 / 65536
+
+
 def bit_problems(font: TTFont, target: Target, family: Family) -> list[str]:
     """``head.fontRevision``, the vendor id, and a static's style bits."""
     problems: list[str] = []
     revision = font["head"].fontRevision
-    if abs(revision - family.font_revision) > 1e-6:
+    if abs(revision - family.font_revision) > FONT_REVISION_STEP / 2:
         problems.append(
-            f"head.fontRevision is {revision}, expected {family.font_revision}"
+            f"head.fontRevision is {revision}, expected {family.font_revision} "
+            "(to within half a 16.16 step)"
         )
     vendor = font["OS/2"].achVendID
     if vendor != family.vendor_bytes():
@@ -1152,12 +1162,16 @@ def stack_slant_problem(
 # --------------------------------------------------------------------------- #
 
 
-def license_problems(root: Path, family: Family) -> list[str]:
+def license_problems(root: Path, family: Family, *, release: bool = False) -> list[str]:
     """The licence files say what the fonts claim they say.
 
     The OFL body is not paraphrased or re-typed: it is the pinned upstream file
     from its line of dashes onward, compared line for line, because a licence
     with a typo in it is a licence nobody can rely on.
+
+    ``release`` says whether this build carries a version somebody chose
+    (``ASTERWELL_VERSION`` or a tag at HEAD) rather than the ``0.000`` dev
+    default; :func:`fontlog_problems` holds those to the ChangeLog.
     """
     problems: list[str] = []
 
@@ -1196,12 +1210,50 @@ def license_problems(root: Path, family: Family) -> list[str]:
                 f"{expected[:12]}…"
             )
 
+    # The one place this module names the file; `release.yml`'s `paths:` filter
+    # is the other place it is spelled (§15.4.1).
     fontlog = root / "FONTLOG.txt"
     if not fontlog.is_file():
         problems.append(f"{fontlog} is missing")
-    elif family.version not in fontlog.read_text(encoding="utf-8"):
-        problems.append(f"FONTLOG.txt never mentions version {family.version}")
+    else:
+        problems += fontlog_problems(
+            fontlog.read_text(encoding="utf-8"), family.version, release=release
+        )
     return problems
+
+
+def fontlog_problems(text: str, version: str, *, release: bool) -> list[str]:
+    """``FONTLOG.txt``'s ChangeLog: the grammar always, the top entry on a release.
+
+    Every build parses the ChangeLog, so a malformed entry is caught by the
+    first `mise run qa` after it is written rather than by the release that
+    tries to act on it. A build that carries a chosen version is held to one
+    more rule (Q10): the entry for *that* version is the newest one, so the
+    release notes, the tag and the fonts describe the same change. A ``0.000``
+    dev build is not making that claim and is only held to the grammar.
+    """
+    # Deferred: `package` imports this module for the report names it ships, so
+    # the parser it owns can only be reached from inside a function here.
+    from asterwell_build import package
+
+    try:
+        entries = package.parse_changelog(text)
+    except package.PackageError as exc:
+        return [str(exc)]
+    if not release:
+        return []
+    if not entries:
+        return [
+            f"FONTLOG.txt's ChangeLog has no entry, but this build is {version} — "
+            f"add `{version} (YYYY-MM-DD): what changed.` at the top of it"
+        ]
+    if entries[0].version != version:
+        return [
+            f"FONTLOG.txt's top ChangeLog entry is {entries[0].version}, but this "
+            f"build is {version} — the entry for the version being released must "
+            "be first"
+        ]
+    return []
 
 
 # --------------------------------------------------------------------------- #
@@ -1402,8 +1454,14 @@ def check(
     log: Log = print,
 ) -> Report:
     """Every §9 check over the built family, as one :class:`Report`."""
+    # Deferred: see `fontlog_problems`. The version a build carries decides both
+    # what the name table must say and whether the FONTLOG gate applies.
+    from asterwell_build import package
+
     root = root if root is not None else upstream.default_root()
-    family = assemble.load_family(assemble.family_path_for(root))
+    resolved = package.resolve_version(root)
+    log(f"version: {resolved}")
+    family = assemble.load_family(assemble.family_path_for(root), resolved.version)
     rows = allowlist.read_tsv(allowlist.tsv_path_for(root))
     # The star parameters are read once and used twice: to regenerate what each
     # style's stars must be, and as the rule the two styles are compared by.
@@ -1436,7 +1494,7 @@ def check(
         note=f"{len(targets)} files",
     )
     report.add("licensing", "OFL.txt / DEJAVU-LICENSE.txt / FONTLOG.txt",
-               reasons=license_problems(root, family))
+               reasons=license_problems(root, family, release=resolved.is_release))
 
     signatures: dict[str, dict[str, StarSignature]] = {}
     for target in targets:
@@ -1567,6 +1625,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """``asterwell-build qa`` — see :func:`qa`."""
+    # Deferred: see `fontlog_problems`. A malformed ASTERWELL_VERSION is a
+    # message, not a traceback, so its error type has to be catchable here.
+    from asterwell_build.package import PackageError
+
     try:
         return qa(
             skip_fontbakery=getattr(args, "skip_fontbakery", False),
@@ -1575,6 +1637,7 @@ def run(args: argparse.Namespace) -> int:
         )
     except (
         QaError,
+        PackageError,
         assemble.AssembleError,
         allowlist.AllowlistError,
         stars.StarsError,

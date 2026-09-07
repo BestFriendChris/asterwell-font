@@ -30,8 +30,11 @@ run = "uv run --frozen asterwell-build allowlist"
 [tasks.build]
 description = "Assemble the family: fonts/variable, fonts/ttf, fonts/webfonts"
 depends = ["fetch"]
-sources = ["sources/**", "src/**", "build/upstream/.verified"]
-outputs = ["fonts/variable/*.ttf", "fonts/ttf/*.ttf", "fonts/webfonts/*.woff2", "fonts/BUILD-INFO.json"]
+# Deliberately no `sources`/`outputs`: mise's skip-if-unchanged compares files,
+# and the version the fonts carry comes from the environment (ASTERWELL_VERSION)
+# or from a tag, neither of which it can see. `ASTERWELL_VERSION=0.002 mise run
+# build` after a dev build must not reuse fonts that say 0.000. The build is
+# about a minute; correctness wins.
 # Byte-reproducible builds: head.modified comes from SOURCE_DATE_EPOCH (fontTools honours it).
 run = """
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"

@@ -759,6 +759,29 @@ def test_bits_catch_a_wrong_font_revision(
     )
 
 
+def test_bits_accept_the_16_16_rounding_of_a_three_digit_minor(
+    built: TTFont, variable_target: qa.Target
+) -> None:
+    """`head.fontRevision` is fixed-point: 0.002 is stored as 0.00199890…, and
+    that *is* the version — 1.1e-6 of rounding is not a defect."""
+    family = dataclasses.replace(FAMILY, version="0.002")
+    stored = round(family.font_revision * 65536) / 65536
+    assert stored != family.font_revision, "the version chosen must not be exact"
+    built["head"].fontRevision = stored
+    assert qa.bit_problems(built, variable_target, family) == []
+
+
+def test_bits_still_separate_two_adjacent_releases(
+    built: TTFont, variable_target: qa.Target
+) -> None:
+    """Half a 16.16 step is tolerance enough for rounding and no more."""
+    built["head"].fontRevision = round(0.001 * 65536) / 65536
+    problems = qa.bit_problems(
+        built, variable_target, dataclasses.replace(FAMILY, version="0.002")
+    )
+    assert any("fontRevision" in problem for problem in problems)
+
+
 def test_bits_catch_a_wrong_vendor_id(built: TTFont, variable_target: qa.Target) -> None:
     built["OS/2"].achVendID = "TT  "
     assert any(
@@ -1102,11 +1125,26 @@ def licensed_root(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tmp_path / "DEJAVU-LICENSE.txt").write_text(dejavu_license, encoding="utf-8")
-    (tmp_path / "FONTLOG.txt").write_text(
-        "FONTLOG for Asterwell Text\n1.000 (2026-09-07): initial release\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "FONTLOG.txt").write_text(_fontlog(FAMILY.version), encoding="utf-8")
     return tmp_path
+
+
+def _fontlog(*versions: str) -> str:
+    """A FONTLOG whose ChangeLog carries ``versions``, newest first."""
+    return "\n".join(
+        [
+            "FONTLOG for Asterwell Text",
+            "==========================",
+            "",
+            "ChangeLog",
+            "---------",
+            "",
+            "Newest first: merging an entry to main releases that version.",
+            "",
+            *(f"{version} (2026-09-07): what changed." for version in versions),
+            "",
+        ]
+    )
 
 
 def test_licensing_passes_on_a_correct_tree(licensed_root: Path) -> None:
@@ -1129,12 +1167,58 @@ def test_licensing_catches_a_changed_dejavu_notice(licensed_root: Path) -> None:
     assert any("sha256" in problem for problem in problems)
 
 
-def test_licensing_catches_a_fontlog_that_never_mentions_the_version(
-    licensed_root: Path,
-) -> None:
+def test_licensing_catches_a_missing_fontlog(licensed_root: Path) -> None:
+    (licensed_root / "FONTLOG.txt").unlink()
+    problems = qa.license_problems(licensed_root, FAMILY)
+    assert any("FONTLOG.txt is missing" in problem for problem in problems)
+
+
+def test_licensing_catches_a_changelog_it_cannot_read(licensed_root: Path) -> None:
+    """Grammar is checked in every build, release or not."""
     (licensed_root / "FONTLOG.txt").write_text("FONTLOG\n", encoding="utf-8")
     problems = qa.license_problems(licensed_root, FAMILY)
-    assert any("never mentions version" in problem for problem in problems)
+    assert any("no `ChangeLog` heading" in problem for problem in problems)
+
+
+# --------------------------------------------------------------------------- #
+# 9.6 The FONTLOG gate (Q10): the entry being released comes first
+# --------------------------------------------------------------------------- #
+
+
+def test_a_dev_build_is_held_to_the_grammar_only() -> None:
+    """`mise run package` on a laptop builds 0.000 and claims no release."""
+    assert qa.fontlog_problems(_fontlog(), "0.000", release=False) == []
+    assert qa.fontlog_problems(_fontlog("0.002"), "0.000", release=False) == []
+
+
+def test_a_dev_build_still_refuses_a_malformed_entry() -> None:
+    problems = qa.fontlog_problems(_fontlog("0.2"), "0.000", release=False)
+    assert any("write 0.002" in problem for problem in problems)
+
+
+def test_a_release_build_needs_its_entry_at_the_top() -> None:
+    assert qa.fontlog_problems(_fontlog("0.002", "0.001"), "0.002", release=True) == []
+
+
+def test_a_release_build_refuses_an_entry_that_is_not_first() -> None:
+    problems = qa.fontlog_problems(_fontlog("0.002", "0.001"), "0.001", release=True)
+    assert problems == [
+        "FONTLOG.txt's top ChangeLog entry is 0.002, but this build is 0.001 — "
+        "the entry for the version being released must be first"
+    ]
+
+
+def test_a_release_build_refuses_an_empty_changelog() -> None:
+    problems = qa.fontlog_problems(_fontlog(), "0.002", release=True)
+    assert any("0.002 (YYYY-MM-DD)" in problem for problem in problems)
+
+
+def test_the_gate_reaches_the_licensing_check(licensed_root: Path) -> None:
+    """`qa.check` passes `release=` through; the report line is the same one."""
+    (licensed_root / "FONTLOG.txt").write_text(_fontlog("0.002"), encoding="utf-8")
+    assert qa.license_problems(licensed_root, FAMILY, release=False) == []
+    problems = qa.license_problems(licensed_root, FAMILY, release=True)
+    assert any("must be first" in problem for problem in problems)
 
 
 # --------------------------------------------------------------------------- #
