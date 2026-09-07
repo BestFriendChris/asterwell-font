@@ -96,6 +96,15 @@ jobs:
           mise run package
           diff "$RUNNER_TEMP/SHA256SUMS.first.txt" fonts/dist/SHA256SUMS.txt
 
+      # The showcase site is not part of the release zip, so it is not covered
+      # by the reproducibility diff above and has to be exercised on its own.
+      # Built after it, from the same tree: a failure here is the site
+      # generator's, not a difference between two builds. `fonts/site` then
+      # rides along in the artifact below, so a reviewer can open the page —
+      # and the playground — without building anything.
+      - name: Render the showcase site
+        run: mise run site
+
       # Uploaded even when a step above failed: a failing QA run's fontbakery
       # reports are exactly what a reviewer needs. `warn` rather than `error`
       # for the same reason — after an early failure there may be no tree yet,

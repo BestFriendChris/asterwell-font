@@ -15,6 +15,7 @@ EXPECTED_COMMANDS = [
     "build",
     "qa",
     "specimen",
+    "site",
     "package",
     "version",
 ]

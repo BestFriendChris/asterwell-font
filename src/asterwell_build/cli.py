@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 
-from asterwell_build import allowlist, assemble, package, qa, specimen, stars, upstream
+from asterwell_build import allowlist, assemble, package, qa, site, specimen, stars, upstream
 
 # Ordered command surface: name -> one-line help. The order is the pipeline
 # order and is what ``asterwell-build --help`` lists.
@@ -23,6 +23,7 @@ COMMAND_HELP: dict[str, str] = {
     "build": "Assemble the family into fonts/variable, fonts/ttf and fonts/webfonts",
     "qa": "Check coverage, metrics, names, shaping, licensing and fontbakery",
     "specimen": "Render fonts/specimen/index.html",
+    "site": "Render fonts/site: the showcase page, its web fonts and the specimen",
     "package": "Write fonts/dist: release zip, SHA256SUMS.txt and RELEASE-NOTES.md",
     "version": "Report this build's version, or --pending: what merging would release",
 }
@@ -50,6 +51,7 @@ COMMANDS["stars"] = stars.run
 COMMANDS["build"] = assemble.run
 COMMANDS["qa"] = qa.run
 COMMANDS["specimen"] = specimen.run
+COMMANDS["site"] = site.run
 COMMANDS["package"] = package.run
 COMMANDS["version"] = package.run_version
 
@@ -62,6 +64,7 @@ COMMAND_ARGUMENTS: dict[str, Callable[[argparse.ArgumentParser], None]] = {
     "build": assemble.add_arguments,
     "qa": qa.add_arguments,
     "specimen": specimen.add_arguments,
+    "site": site.add_arguments,
     "package": package.add_arguments,
     "version": package.add_version_arguments,
 }

@@ -51,6 +51,11 @@ description = "Render fonts/specimen/index.html (full allowlist in every shipped
 depends = ["build"]
 run = "uv run --frozen asterwell-build specimen"
 
+[tasks.site]
+description = "Render the showcase site into fonts/site (index.html, webfonts, specimen, .nojekyll)"
+depends = ["specimen"]
+run = "uv run --frozen asterwell-build site"
+
 [tasks.package]
 description = "fonts/dist: release zip, SHA256SUMS.txt, RELEASE-NOTES.md"
 depends = ["qa", "specimen"]

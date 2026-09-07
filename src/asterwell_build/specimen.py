@@ -50,7 +50,16 @@ from asterwell_build.assemble import Family
 
 Log = Callable[[str], None]
 
-__all__ = ["SpecimenError", "build", "render", "run"]
+__all__ = [
+    "Face",
+    "SpecimenError",
+    "build",
+    "display_text",
+    "escape",
+    "font_face_rules",
+    "render",
+    "run",
+]
 
 
 class SpecimenError(Exception):
@@ -185,8 +194,41 @@ def display_text(row: allowlist.Row) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _escape(text: str) -> str:
+def escape(text: str) -> str:
+    """HTML-escape one string, attribute values included.
+
+    Public because :mod:`asterwell_build.site` renders a second page from the
+    same manifest and must escape it the same way (§15.2.1: the two generated
+    pages share their building blocks rather than growing two copies).
+    """
     return html.escape(text, quote=True)
+
+
+#: The specimen's own call sites keep the private spelling they were written
+#: with; ``escape`` is the name the site module imports.
+_escape = escape
+
+
+def font_face_rules(names: Mapping[str, str], *, prefix: str, css_family: str) -> str:
+    """The two ``@font-face`` rules a generated page needs, as one CSS block.
+
+    One rule per style, each naming the *variable* WOFF2 over the whole
+    ``font-weight: 200 900`` range, so a page states the family once and reaches
+    every weight of it. ``prefix`` is where the files sit relative to the page
+    (``../webfonts/`` from the specimen, ``webfonts/`` from the site), and
+    ``css_family`` is the page-local family name — deliberately never the real
+    one, so a reader with the family installed still sees the built files.
+    """
+    return "\n".join(
+        f"""@font-face {{
+  font-family: "{css_family}";
+  src: url("{prefix}{quote(names[style.key])}") format("woff2");
+  font-weight: 200 900;
+  font-style: {"italic" if style.key == "italic" else "normal"};
+  font-display: block;
+}}"""
+        for style in assemble.STYLES
+    )
 
 
 def _face_span(face: Face, text: str, extra: str = "") -> str:
@@ -195,16 +237,7 @@ def _face_span(face: Face, text: str, extra: str = "") -> str:
 
 
 def _stylesheet(names: Mapping[str, str]) -> str:
-    faces = "\n".join(
-        f"""@font-face {{
-  font-family: "{CSS_FAMILY}";
-  src: url("{WEBFONT_PREFIX}{quote(names[style.key])}") format("woff2");
-  font-weight: 200 900;
-  font-style: {"italic" if style.key == "italic" else "normal"};
-  font-display: block;
-}}"""
-        for style in assemble.STYLES
-    )
+    faces = font_face_rules(names, prefix=WEBFONT_PREFIX, css_family=CSS_FAMILY)
     ribbi_rules = "\n".join(
         f".{face.key} {{ {face.css} }}" for face in RIBBI
     )

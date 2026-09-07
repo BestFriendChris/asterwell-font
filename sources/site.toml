@@ -1,0 +1,77 @@
+# Copy for the showcase site (`asterwell-build site` → fonts/site/index.html).
+#
+# This file is the page's words and nothing else. Everything the page states
+# as fact — the version, the code-point counts, the upstream pins, the italic
+# treatment's angles, the file names in the @font-face snippet — is read from
+# the build itself, so a claim here cannot drift away from what shipped.
+#
+# `demo` names one of four built-in demonstration blocks site.py renders under
+# a section's prose: opsz | steady | stars | provenance. `key` is the section's
+# anchor in the page. Edit the prose freely; the demo keys are code.
+
+title    = "Asterwell Text"
+tagline  = "A literary serif for reading, and for the interface around it"
+repo_url = "https://github.com/BestFriendChris/asterwell-font"
+release_url = "https://github.com/BestFriendChris/asterwell-font/releases/latest"
+site_url = "https://bestfriendchris.github.io/asterwell-font/"
+
+# --------------------------------------------------------------------------- #
+# What makes it special — four cards, each a heading, prose, and a live demo.
+# --------------------------------------------------------------------------- #
+
+[[section]]
+key = "optical"
+heading = "Optical sizes that really change the drawing"
+demo = "opsz"
+body = [
+  "The prose face is Literata, the variable serif TypeTogether drew for long-form reading, carried here unchanged in outline, metric and layout. Its optical-size axis runs from 7 to 72, and it is not a scaling trick: at a footnote size the letters open up, the strokes even out and the spacing loosens, while at a display size the joins tighten and the contrast climbs.",
+  "Say `font-optical-sizing: auto` once and every size on the page gets the drawing that was made for it. The pair below is the same sentence, the same font file and the same weight — only the size differs, and with it the design.",
+]
+
+[[section]]
+key = "steady"
+heading = "Symbols that hold still while the prose thickens"
+demo = "steady"
+body = [
+  "A family that mixes prose with markers has a choice to make about weight. Asterwell Text makes it explicitly: the letters interpolate across the whole 200–900 range, and the symbols do not. Every imported and original symbol is stored with no variation deltas at all, so a flag, a check mark or a star is the same drawing at ExtraLight as at Black.",
+  "That is what keeps a marker from turning into a blob inside a bold heading, and what lets one ornament sit in a caption and a title and still read as the same object. The ramp below runs 200 to 900 with four symbols riding along.",
+]
+
+[[section]]
+key = "stars"
+heading = "An original star family, drawn from one template"
+demo = "stars"
+body = [
+  "Literata has no six-petal star, and the ones in the symbol fonts are foreign to it. So this family draws its own: ✽ is a parametric six-petal template, and ✻ ✼ ✾ ❃ are the same template under four transformations — a lighter petal, an open centre with a joining ring, three petals hollowed to a thin wall, and every petal sheared into a pinwheel. The small marks ⁎, ⁑ and ⁂ are one small star used once, twice and three times, on the advance Literata gives its own asterisk.",
+  "The italic is not the roman leaned over. The template is turned so the petals point up-left and up-right instead of one straight up, and the stacked stars of ⁑ and ⁂ lean the way Literata's own colon and asterism do. Nothing is sheared; the two styles are two drawings of one design.",
+]
+
+[[section]]
+key = "provenance"
+heading = "Made to be relied on"
+demo = "provenance"
+body = [
+  "Coverage here is a decision, not an accident of whatever the source fonts happened to contain. Every code point the family promises has a row in a checked-in manifest that records its Unicode name, its block, whether it needs a text-presentation selector, and where its outline came from: drawn here, preserved from Literata, or imported from DejaVu Sans and scaled to Literata's cap height. Bumping an upstream pin shows up as a reviewable diff in that file.",
+  "The build is byte-reproducible from pinned, checksummed inputs, and every release is checked by fontbakery before it is published. The licences travel with the fonts, in the archive and in the fonts' own name table.",
+]
+
+# --------------------------------------------------------------------------- #
+# Examples — a manuscript panel with a margin note, and an interface line.
+# --------------------------------------------------------------------------- #
+
+[examples]
+manuscript = [
+  "The archive kept its own weather. Rain on the skylights, the radiators ticking, and — for three winters running — a librarian who insisted the catalogue was a work of literature.✽ She was not wrong about the commas.",
+  "“Every entry is an argument,” she said, tapping a card with one finger. “The date is a claim, the title is a claim, and the shelf mark is where you put your money.” Then she filed it, and the drawer closed with the sound of a sentence ending.",
+]
+margin_note = "The footnote star is ✽ — the family's own drawing, not the asterisk."
+interface = "⌘S Save   ⌫ Delete   ⏎ Open   ✓ Done   ✕ Cancel   ▸ Next   ⚑ Flag   ✎ Edit"
+
+# --------------------------------------------------------------------------- #
+# Playground — where the visitor's own text lands, and what it starts as.
+# --------------------------------------------------------------------------- #
+
+[playground]
+default_text = "The quick brown fox — “quoted”, dashed… and starred ✽"
+default_weight = 400
+default_size = 24
