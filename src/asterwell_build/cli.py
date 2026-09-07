@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 
+from asterwell_build import upstream
+
 # Ordered command surface: name -> one-line help. The order is the pipeline
 # order and is what ``asterwell-build --help`` lists.
 COMMAND_HELP: dict[str, str] = {
@@ -42,6 +44,13 @@ def _stub(name: str) -> Callable[[argparse.Namespace], int]:
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub(name) for name in COMMAND_HELP
 }
+COMMANDS["fetch"] = upstream.run
+
+# name -> function adding that command's own options to its subparser. A command
+# with no options of its own is simply absent.
+COMMAND_ARGUMENTS: dict[str, Callable[[argparse.ArgumentParser], None]] = {
+    "fetch": upstream.add_arguments,
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,6 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
     for name, help_text in COMMAND_HELP.items():
         sub = subparsers.add_parser(name, help=help_text, description=help_text)
+        add_arguments = COMMAND_ARGUMENTS.get(name)
+        if add_arguments is not None:
+            add_arguments(sub)
         sub.set_defaults(handler=COMMANDS[name])
     return parser
 
