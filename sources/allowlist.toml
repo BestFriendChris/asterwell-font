@@ -1,0 +1,19 @@
+[custom]                     # original outlines; precedence 1
+codepoints = ["U+273D", "U+204E", "U+2051", "U+2042"]
+
+[ranges]                     # seed scope from the design doc; precedence 3 (after preserved Literata)
+"Dingbats"                         = ["U+2700", "U+27BF"]
+"Miscellaneous Symbols"            = ["U+2600", "U+26FF"]
+"Geometric Shapes"                 = ["U+25A0", "U+25FF"]
+"Miscellaneous Symbols and Arrows" = ["U+2B00", "U+2BFF"]
+
+[extras]                     # individually selected, outside the ranges; each MUST exist in DejaVuSans 2.37
+# required UI symbols missing from Literata (design doc inventory)
+ui-required = ["U+2194", "U+21E5", "U+21E7", "U+222A", "U+2286", "U+2318", "U+232B", "U+23CE", "U+2423", "U+2500"]
+# selected marker outside the ranges
+markers     = ["U+2055"]
+# small keyboard/UI reserve (same family as the required ⌘ ⌫ ⏎ ⇧ ⇥); prune at the Step 11 review if unwanted
+ui-reserve  = ["U+2325", "U+2303", "U+2326", "U+21EA", "U+21E4", "U+21DE", "U+21DF", "U+21A9", "U+21AA", "U+2195", "U+21D0", "U+21D2", "U+21D4"]
+
+[overrides]                  # per-code-point import adjustments (Literata units after scaling)
+"U+25E6" = { match_metrics_of = "U+2022" }   # ◦ is a bullet: fit it to Literata's • box and advance
