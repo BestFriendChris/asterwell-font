@@ -29,9 +29,12 @@ build writes from — :func:`asterwell_build.assemble.name_strings` and
 the build. No Macintosh records, no upstream family name anywhere it would be
 read as ours, the Reserved Font Name only in the copyright.
 
-*Stars.* The four ornaments have the envelopes
-:mod:`asterwell_build.stars` computes, ⁎ ⁑ ⁂ are composites of ``star.small``
-alone, and the two *outlines* are byte-identical in the roman and the italic.
+*Stars.* The eight ornaments have the envelopes
+:mod:`asterwell_build.stars` computes — and every drawn one is that generator's
+outline point for point — ⁎ ⁑ ⁂ are composites of ``star.small`` alone, and the
+italic's stars are the roman's turned by ``[italic] rotation`` about their own
+centres, with the stacks of ⁑ and ⁂ leaned by ``stack_slant`` and nothing
+sheared (D21).
 
 *Licensing.* The OFL body is the pinned upstream text byte for byte, the DejaVu
 notices are the pinned file, and the notices that must travel in name ID 0 are
@@ -57,7 +60,9 @@ that say nothing about the fonts; passing them apart produces none.
 from __future__ import annotations
 
 import argparse
+import array
 import json
+import math
 import os
 import subprocess
 import sys
@@ -66,8 +71,10 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
+import pathops
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont, woff2
+from fontTools.ttLib.tables._g_l_y_f import Glyph, GlyphCoordinates
 
 from asterwell_build import allowlist, assemble, instances, stars, upstream, web
 from asterwell_build.assemble import Family, Invariants, Style
@@ -164,6 +171,26 @@ INHERITED_NAME_IDS = (0, 5, 8, 9, 10, 11, 13, 14)
 
 #: Tolerance on a star's bounding box, in font units (§9.5).
 STAR_BBOX_TOLERANCE = 2
+
+#: How much of one style's star may fall outside the other style's turned copy,
+#: as a fraction of its own area (§15.1.5). The two outlines are drawn from the
+#: same template but rounded to the grid independently, which alone accounts for
+#: about 1 %; a shear of the stacks' own 2.5° is 8 % and up and an unturned
+#: italic is over 100 %, so the gate tells a rotation from a skew by a factor of
+#: six rather than merely accepting anything nearby.
+STAR_ROTATION_TOLERANCE = 0.02
+
+#: How far one star of a stack may sit from where the lean rule puts it, in font
+#: units. Each style rounds its own placement to the grid, so a component can be
+#: half a unit out in each and a whole unit apart — never more, which is why this
+#: gate cannot fire on rounding alone.
+STAR_LEAN_TOLERANCE = 1.0
+
+#: The on-curve bit of a TrueType point flag. It is the only bit that says
+#: anything about the *drawing*: the instancer sets ``OVERLAP_SIMPLE`` (0x40) on
+#: the first point of every static it cuts, which is a rasteriser hint and not a
+#: change to the outline, so the comparisons here mask the flags down to this.
+ON_CURVE = 0x01
 
 #: Slice of the pinned Literata ``OFL.txt`` that is the licence body: from the
 #: line of dashes to the end, i.e. everything but the upstream's own header.
@@ -298,7 +325,7 @@ def open_font(data: bytes) -> TTFont:
 
 
 def discover(
-    root: Path, family: Family, log: Log
+    root: Path, family: Family, parameters: stars.Parameters, log: Log
 ) -> tuple[list[StyleReference], list[Target]]:
     """Locate every file the build should have written, and read the references.
 
@@ -309,7 +336,6 @@ def discover(
     fonts_dir = assemble.fonts_dir_for(root)
     references: list[StyleReference] = []
     targets: list[Target] = []
-    parameters = stars.load_parameters(stars.parameters_path_for(root))
 
     for style in assemble.STYLES:
         source = assemble.pinned_member(root, "literata", style.member)
@@ -827,13 +853,80 @@ class StarSignature:
     """One style's stars, in a shape the two styles can be compared through."""
 
     outlines: Mapping[str, tuple[tuple[int, ...], ...]]
-    """Simple glyphs: the coordinates, flags and contour ends that ship."""
+    """Simple glyphs: the coordinates, contour ends and on-curve flags that
+    ship. Enough to redraw the outline (:func:`outline_path`), which is what the
+    cross-style rule needs: the italic's is the roman's turned, not its bytes."""
 
     components: Mapping[str, tuple[tuple[str, int, int], ...]]
-    """Composites: each component's name and its offset **relative to the
-    glyph's own centre** (``2·x − advance``), which is the only form in which
-    the roman and the italic can agree: ⁎ ⁑ ⁂ inherit the style's own asterisk
-    advance, so their absolute offsets differ by exactly half that difference."""
+    """Composites: each component's name, its x **relative to the glyph's own
+    centre and doubled** (``2·x − advance``, so that a half-unit stays an
+    integer), and its y exactly as it ships. That is the only form in which the
+    two styles can be compared at all: ⁎ ⁑ ⁂ inherit the style's own asterisk
+    advance, so their absolute offsets differ by half that difference before
+    anything leans. Nothing moves a star vertically, so y needs no such care —
+    but it does mean every x read from here is halved before it is a distance."""
+
+
+def outline_signature(glyph: Glyph, glyf: object | None) -> tuple[tuple[int, ...], ...]:
+    """One simple glyph as ``(coordinates, contour ends, on-curve flags)``.
+
+    The flags are masked to :data:`ON_CURVE` so that two spellings of the same
+    outline compare equal: a static carries the instancer's ``OVERLAP_SIMPLE``
+    hint on its first point, and a hint is not a drawing.
+    """
+    coordinates, end_points, flags = glyph.getCoordinates(glyf)
+    return (
+        tuple(int(value) for point in coordinates for value in point),
+        tuple(int(end) for end in end_points),
+        tuple(int(flag) & ON_CURVE for flag in flags),
+    )
+
+
+def outline_path(outline: tuple[tuple[int, ...], ...]) -> pathops.Path:
+    """A signature's outline back as a drawable path, ready to be compared.
+
+    The comparison the italic needs is geometric, not textual — one shape turned
+    onto another — so the points come back through a real quadratic pen rather
+    than being differenced as numbers.
+    """
+    coordinates, end_points, flags = outline
+    glyph = Glyph()
+    glyph.numberOfContours = len(end_points)
+    glyph.coordinates = GlyphCoordinates(
+        [(coordinates[i], coordinates[i + 1]) for i in range(0, len(coordinates), 2)]
+    )
+    glyph.endPtsOfContours = list(end_points)
+    glyph.flags = array.array("B", flags)
+    path = pathops.Path()
+    glyph.draw(path.getPen(), None)
+    return path
+
+
+def centred(path: pathops.Path) -> pathops.Path:
+    """The same path with its bounding box centred on the origin.
+
+    Where a star sits inside its advance is the *placement* question, answered
+    by :func:`star_problems` against the generator's own numbers. What is being
+    asked here is about the shape alone, so both styles are moved to one spot
+    first.
+    """
+    x_min, y_min, x_max, y_max = path.bounds
+    return path.transform(
+        1.0, 0.0, 0.0, 1.0, -(x_min + x_max) / 2.0, -(y_min + y_max) / 2.0
+    )
+
+
+def turned(path: pathops.Path, degrees: float) -> pathops.Path:
+    angle = math.radians(degrees)
+    cos, sin = math.cos(angle), math.sin(angle)
+    return path.transform(cos, sin, -sin, cos, 0.0, 0.0)
+
+
+def difference_area(one: pathops.Path, other: pathops.Path) -> float:
+    """Area covered by exactly one of the two shapes: 0 if they coincide."""
+    out = pathops.Path()
+    pathops.xor([one], [other], out.getPen())
+    return abs(out.area)
 
 
 def star_signature(font: TTFont, advances: Mapping[str, int]) -> StarSignature:
@@ -848,18 +941,21 @@ def star_signature(font: TTFont, advances: Mapping[str, int]) -> StarSignature:
                 for component in glyph.components
             )
         else:
-            coordinates, end_points, flags = glyph.getCoordinates(glyf)
-            outlines[name] = (
-                tuple(int(value) for point in coordinates for value in point),
-                tuple(int(end) for end in end_points),
-                tuple(int(flag) for flag in flags),
-            )
+            outlines[name] = outline_signature(glyph, glyf)
     return StarSignature(outlines=outlines, components=components)
 
 
 def star_problems(font: TTFont, expected: Mapping[str, stars.StarGlyph]) -> list[str]:
-    """§9.5: the four ornaments have the envelopes :mod:`stars` computed, and
-    ⁎ ⁑ ⁂ are built from ``star.small`` and nothing else."""
+    """§9.5: every ornament has the envelope :mod:`stars` computed and, when it
+    is drawn rather than assembled, that generator's outline point for point;
+    ⁎ ⁑ ⁂ are built from ``star.small`` and nothing else.
+
+    The outline comparison is exact because the build *is* the generator: these
+    glyphs are written straight out of :func:`stars.build_glyphs`, so anything
+    but equality means a point moved somewhere between drawing and shipping.
+    ``expected`` is built per style, so the italic is checked against the turned
+    template and the roman against the upright one.
+    """
     problems: list[str] = []
     glyf = font["glyf"]
     order = set(font.getGlyphOrder())
@@ -884,37 +980,171 @@ def star_problems(font: TTFont, expected: Mapping[str, stars.StarGlyph]) -> list
                 f"{name} is built from {found or 'an outline'}, expected "
                 f"{star.components or 'an outline'}"
             )
+        elif not star.is_composite:
+            problems += outline_drift(name, outline_signature(glyph, glyf), star)
     return problems
+
+
+def outline_drift(
+    name: str, shipped: tuple[tuple[int, ...], ...], star: stars.StarGlyph
+) -> list[str]:
+    """One drawn star against the outline :mod:`stars` generated for it."""
+    drawn = outline_signature(star.glyph, None)
+    if shipped == drawn:
+        return []
+    shipped_points, shipped_ends, _ = shipped
+    drawn_points, drawn_ends, _ = drawn
+    if len(shipped_points) != len(drawn_points) or shipped_ends != drawn_ends:
+        return [
+            f"{name} is {len(shipped_points) // 2} point(s) in "
+            f"{len(shipped_ends)} contour(s), expected {len(drawn_points) // 2} "
+            f"in {len(drawn_ends)}"
+        ]
+    moved = sum(
+        1
+        for index in range(0, len(drawn_points), 2)
+        if shipped_points[index : index + 2] != drawn_points[index : index + 2]
+    )
+    if moved:
+        return [f"{name} is not the outline `stars` draws: {moved} point(s) moved"]
+    return [f"{name} is not the outline `stars` draws: an on-curve flag changed"]
 
 
 def cross_style_star_problems(
-    signatures: Mapping[str, StarSignature], kind: str
+    signatures: Mapping[str, StarSignature],
+    kind: str,
+    parameters: stars.Parameters,
 ) -> list[str]:
-    """The stars are one drawing, used twice.
+    """The stars are one drawing, turned — never a second drawing (D21).
 
-    The two *outlines* — ``star.small`` and ✽ — must be identical in the roman
-    and the italic, because an ornament that leaned in the italic would be a
-    different ornament (D5). The three *composites* cannot be byte-identical:
-    each inherits its style's own asterisk advance, so the shared component sits
-    at a different absolute offset. What must match is the arrangement, which is
-    what :class:`StarSignature` normalises.
+    Both styles come from the same template, so the italic's outline has to be
+    the roman's rotated by ``[italic] rotation`` about its own centre and
+    nothing else: not sheared, not redrawn, not left upright. That is measured
+    as area rather than compared as bytes, because the two are rounded to the
+    grid independently — see :data:`STAR_ROTATION_TOLERANCE` for what the gate
+    separates.
+
+    The composites cannot be byte-identical either: each inherits its style's
+    own asterisk advance, which is what :class:`StarSignature` normalises away.
+    What is left is the arrangement, and the arrangement moves in exactly one
+    way — the *stacks* ⁑ and ⁂ lean in the italic, every star shifting
+    horizontally by its own height above the stack's mean times
+    ``tan(stack_slant)``. So each italic component is checked against the roman's
+    plus that shift, and each stack is checked for leaning by the angle its own
+    style claims: ``stack_slant`` in the italic, nothing at all in the roman.
     """
-    keys = sorted(signatures)
-    if len(keys) < 2:
+    if stars.ROMAN not in signatures or stars.ITALIC not in signatures:
         return []
-    first, second = signatures[keys[0]], signatures[keys[1]]
-    problems = [
-        f"{name} differs between {keys[0]} and {keys[1]} ({kind})"
-        for name in sorted(first.outlines)
-        if first.outlines.get(name) != second.outlines.get(name)
-    ]
-    problems += [
-        f"{name} is arranged differently in {keys[0]} and {keys[1]} ({kind}): "
-        f"{first.components.get(name)} vs {second.components.get(name)}"
-        for name in sorted(first.components)
-        if first.components.get(name) != second.components.get(name)
-    ]
+    roman, italic = signatures[stars.ROMAN], signatures[stars.ITALIC]
+    rotation = parameters.italic.rotation
+    problems: list[str] = []
+
+    for name in sorted(roman.outlines):
+        if name not in italic.outlines:
+            problems.append(f"{name} is drawn in the roman but not in the italic ({kind})")
+            continue
+        upright = centred(outline_path(roman.outlines[name]))
+        leaning = centred(outline_path(italic.outlines[name]))
+        area = abs(leaning.area)
+        if not area:
+            problems.append(f"{name} in the italic encloses no area ({kind})")
+            continue
+        ratio = difference_area(turned(upright, rotation), leaning) / area
+        if ratio > STAR_ROTATION_TOLERANCE:
+            problems.append(
+                f"{name} in the italic is not the roman turned {rotation:g}° "
+                f"({kind}): {ratio:.1%} of its area falls outside it, over "
+                f"{STAR_ROTATION_TOLERANCE:.0%}"
+            )
+
+    for name in sorted(roman.components):
+        problems += stack_problems(name, roman, italic, kind, parameters)
     return problems
+
+
+def stack_problems(
+    name: str,
+    roman: StarSignature,
+    italic: StarSignature,
+    kind: str,
+    parameters: stars.Parameters,
+) -> list[str]:
+    """One composite's arrangement in the two styles.
+
+    The stars are paired by height, top first, rather than by the order they
+    happen to be written in: nothing moves a star vertically between the styles,
+    so the heights are what identify it, and star 1 below is the top of the
+    stack in both. Offsets arrive doubled (:class:`StarSignature`), so every
+    measurement here is halved back into font units before it is compared with a
+    tolerance.
+    """
+    here = sorted(roman.components[name], key=lambda component: -component[2])
+    there = sorted(italic.components.get(name, ()), key=lambda component: -component[2])
+    if [component for component, _x, _y in here] != [
+        component for component, _x, _y in there
+    ]:
+        return [
+            f"{name} is arranged differently in the roman and the italic "
+            f"({kind}): {here} vs {there}"
+        ]
+    problems: list[str] = []
+    lean = parameters.italic.lean
+    mean_y = sum(y for _, _x, y in here) / len(here)
+    for index, ((_, x_roman, y_roman), (_, x_italic, y_italic)) in enumerate(
+        zip(here, there), start=1
+    ):
+        if y_italic != y_roman:
+            problems.append(
+                f"{name}'s star {index} sits at y {y_italic} in the italic and "
+                f"{y_roman} in the roman ({kind}): the lean is horizontal"
+            )
+            continue
+        shift = (y_roman - mean_y) * lean
+        drift = abs(x_italic - x_roman - 2 * shift) / 2.0
+        if drift > STAR_LEAN_TOLERANCE:
+            problems.append(
+                f"{name}'s star {index} moved {(x_italic - x_roman) / 2.0:+.1f} "
+                f"units in the italic, expected {shift:+.1f} "
+                f"(±{STAR_LEAN_TOLERANCE:g}, {kind})"
+            )
+    for style, signature, slant in (
+        (stars.ROMAN, roman, 0.0),
+        (stars.ITALIC, italic, parameters.italic.stack_slant),
+    ):
+        upright = stack_slant_problem(name, signature, style, slant, kind)
+        if upright:
+            problems.append(upright)
+    return problems
+
+
+def stack_slant_problem(
+    name: str, signature: StarSignature, style: str, slant: float, kind: str
+) -> str | None:
+    """Whether one style's stack leans by the angle that style claims.
+
+    The measurement is the one the design states: the top star against the mean
+    of the ones it stands on — ⁑'s single partner, ⁂'s pair — which is 0 in the
+    roman and ``rise · tan(slant)`` in the italic. A stack of one (⁎) has
+    nothing to lean against and is skipped.
+    """
+    components = signature.components.get(name, ())
+    if len(components) < 2:
+        return None
+    ordered = sorted(components, key=lambda component: component[2])
+    _, top_x, top_y = ordered[-1]
+    below = ordered[:-1]
+    base_x = sum(x for _, x, _ in below) / len(below)
+    base_y = sum(y for _, _, y in below) / len(below)
+    # x arrives doubled and y does not (:class:`StarSignature`).
+    measured = (top_x - base_x) / 2.0
+    wanted = (top_y - base_y) * math.tan(math.radians(slant))
+    if abs(measured - wanted) <= STAR_LEAN_TOLERANCE:
+        return None
+    return (
+        f"{name}'s top star sits {measured:+.1f} units from the ones below it in "
+        f"the {style}, expected {wanted:+.1f} for a {slant:g}° lean "
+        f"(±{STAR_LEAN_TOLERANCE:g}, {kind})"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1175,9 +1405,12 @@ def check(
     root = root if root is not None else upstream.default_root()
     family = assemble.load_family(assemble.family_path_for(root))
     rows = allowlist.read_tsv(allowlist.tsv_path_for(root))
+    # The star parameters are read once and used twice: to regenerate what each
+    # style's stars must be, and as the rule the two styles are compared by.
+    parameters = stars.load_parameters(stars.parameters_path_for(root))
     report = Report()
 
-    references, targets = discover(root, family, log)
+    references, targets = discover(root, family, parameters, log)
     by_style = {reference.style.key: reference for reference in references}
 
     report.add(
@@ -1250,7 +1483,7 @@ def check(
         report.add(
             "stars (roman vs italic)",
             DIRECTORIES[kind],
-            reasons=cross_style_star_problems(per_style, kind),
+            reasons=cross_style_star_problems(per_style, kind, parameters),
         )
 
     if skip_fontbakery:

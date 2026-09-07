@@ -7,7 +7,7 @@ whichever font happened to have it, so it is recorded per code point in a file
 that lives in review: ``sources/allowlist.tsv``.
 
 ``sources/allowlist.toml`` holds the *rules* — four block ranges to sweep, a
-short list of individually chosen extras, the four custom code points, and any
+short list of individually chosen extras, the eight custom code points, and any
 per-code-point import overrides. This module expands those rules against the
 **pinned** fonts in ``build/upstream/`` and writes the *result*, one row per
 code point, with the column set::
@@ -92,7 +92,7 @@ COLUMNS = (
     "note",
 )
 
-#: ``group`` value for the four original outlines.
+#: ``group`` value for the family's own outlines.
 GROUP_CUSTOM = "custom"
 
 #: ``group`` value for a required-inventory character no other rule selects —

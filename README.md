@@ -4,9 +4,9 @@ Asterwell Text is a serif family for reading and for interfaces: the
 Literata prose face, extended with a curated set of symbols, arrows,
 geometric shapes and ornaments that Literata does not cover, plus an
 original six-petal star family. The symbols are scaled to the prose
-face's cap height and stay upright and steady at every weight and
-optical size, so a marker or a keyboard glyph set in running text reads
-as part of the same voice rather than as a pasted-in icon. This
+face's cap height and stay steady at every weight and optical size, so
+a marker or a keyboard glyph set in running text reads as part of the
+same voice rather than as a pasted-in icon. This
 repository is the build: pinned upstream inputs, a checked-in manifest
 of every code point the family promises, and the pipeline that turns
 them into fonts.
@@ -23,10 +23,17 @@ The family is licensed under the SIL Open Font License, Version 1.1
   geometric shapes, arrows and the keyboard glyphs (⌘ ⌫ ⏎ ⇧ ⇥ …),
   imported by an explicit allowlist and scaled to Literata's cap
   height. Nothing is imported that Literata already covers.
-- **An original star family** — ✽ (U+273D) at full size, and ⁎ (U+204E),
-  ⁑ (U+2051) and ⁂ (U+2042) built from one shared small-star outline, all
-  generated from a single parametric template so the four read as one
-  set. The asterism replaces Literata's own.
+- **An original star family** — ✽ ✻ ✼ ✾ ❃ (U+273B–U+273E, U+2743) at full
+  size, and ⁎ (U+204E), ⁑ (U+2051) and ⁂ (U+2042) built from one shared
+  small-star outline, all generated from a single parametric template so
+  the eight read as one set: ✽ is the template, ✻ its lighter cut, ✼ its
+  open centre, ✾ its hollowed petals and ❃ its pinwheel. The asterism
+  replaces Literata's own. Each style draws the template for itself: in
+  the italic it is turned 30°, so the petals point up-left and up-right
+  rather than one straight up, and the stacked stars of ⁑ and ⁂ lean with
+  the italic as Literata's own colon and asterism do — nothing is sheared,
+  and the roman and italic outlines are two drawings of one design rather
+  than one drawing used twice.
 
 Each build produces two variable fonts, sixteen static instances derived
 from them at `opsz=12`, and WOFF2 versions of the two variable fonts.

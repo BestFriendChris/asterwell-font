@@ -15,11 +15,15 @@ upstream release's. (The *containers* are recompiled, as they must be — adding
 ``head.indexToLocFormat`` flips to 1 and the pad byte on odd-length glyphs goes
 away. Outlines, not bytes, are what "untouched" means here.)
 
-*Custom* — the four stars :mod:`asterwell_build.stars` draws (✽ ⁎ ⁑ ⁂) plus the
-unencoded ``star.small`` they share. The first four are appended to the glyph
-order; ⁂ replaces Literata's own ``uni2042`` **in place**, keeping its glyph ID,
-its advance and its cmap entry, and losing its ``gvar`` entry so it stops
-varying with weight (decision D8 — the stars are one fixed design, D5).
+*Custom* — the eight stars :mod:`asterwell_build.stars` draws (✽ ✻ ✼ ✾ ❃ ⁎ ⁑ ⁂)
+plus the unencoded ``star.small`` that ⁎ ⁑ ⁂ are built from. All but ⁂ are
+appended to the glyph order; ⁂ replaces Literata's own ``uni2042`` **in place**,
+keeping its glyph ID, its advance and its cmap entry, and losing its ``gvar``
+entry so it stops varying with weight (decision D8 — one fixed design across
+the axes, D5). Fixed across the *axes*, not across the styles: the two styles
+draw the same template differently — the italic's stars are the roman's turned,
+and its ⁑ and ⁂ lean (D21) — which is why the drawing is generated per style,
+``stars.build_glyphs(parameters, style.key)``, rather than once and reused.
 
 *Imported* — every row of ``sources/allowlist.tsv`` whose source is ``dejavu``.
 The DejaVu outline is drawn through a decomposing pen (so a composite arrives as
@@ -630,7 +634,13 @@ def add_cmap_entries(font: TTFont, codepoints: Mapping[str, int]) -> None:
 def add_custom_glyphs(
     font: TTFont, star_glyphs: Mapping[str, stars.StarGlyph]
 ) -> tuple[list[str], list[str], dict[str, int]]:
-    """Append ``star.small`` ✽ ⁎ ⁑ and replace ⁂ in place.
+    """Append ``star.small`` ✽ ✻ ✼ ✾ ❃ ⁎ ⁑ and replace ⁂ in place.
+
+    Whatever :func:`stars.build_glyphs` returns is what lands: a glyph the font
+    already has is replaced, anything else is appended, so the family can grow
+    (as it did with ✻ ✼ ✾ ❃) without a line changing here. The glyphs are the
+    ones drawn *for this style* — the italic's are turned and its stacks lean —
+    which this function neither knows nor needs to.
 
     Returns ``(appended, replaced, codepoints)`` — the third being the cmap
     entries these glyphs need, which is every star but ``star.small`` (it is a

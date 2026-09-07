@@ -15,11 +15,12 @@ fonts are never opened, so the suite stays hermetic.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
-from asterwell_build import allowlist, assemble, specimen
+from asterwell_build import allowlist, assemble, specimen, stars
 
 FAMILY = assemble.Family(
     family="Asterwell Text",
@@ -76,11 +77,21 @@ NAMES = {
     "italic": "AsterwellText-Italic[opsz,wght].woff2",
 }
 
+#: The italic treatment the page is rendered with — the checked-in design's
+#: numbers, kept here rather than read from ``sources/stars.toml`` so the suite
+#: stays hermetic.
+ITALIC_TREATMENT = stars.ItalicTreatment(rotation=30.0, stack_slant=2.5)
+
 
 @pytest.fixture(scope="module")
 def page() -> str:
     return specimen.render(
-        family=FAMILY, rows=ROWS, paragraphs=PARAGRAPHS, names=NAMES, inventory="✽⁎•"
+        family=FAMILY,
+        rows=ROWS,
+        paragraphs=PARAGRAPHS,
+        names=NAMES,
+        italic=ITALIC_TREATMENT,
+        inventory="✽⁎•",
     )
 
 
@@ -166,9 +177,46 @@ def test_the_inventory_is_shown_at_four_sizes_in_four_styles(page: str) -> None:
 
 def test_the_star_row_stands_beside_the_asterisk_and_the_diamond(page: str) -> None:
     section = page.split('<section id="stars"')[1].split("</section>")[0]
+    assert specimen.STAR_ROW[:5] == ("✽", "✻", "✼", "✾", "❃")
     assert specimen.STAR_ROW[-2:] == ("*", "◆")
+    for char in specimen.STAR_ROW:
+        assert char in section
     for size in specimen.STAR_SIZES:
-        assert section.count(f"font-size:{size}px") == len(specimen.STAR_ROW)
+        assert section.count(f"font-size:{size}px") == len(specimen.STAR_ROW) * len(
+            specimen.STAR_FACES
+        )
+
+
+def test_the_stars_are_shown_in_both_styles(page: str) -> None:
+    """D21: the italic's stars are a different drawing, so one row would show
+    half the family. Each size gets a labelled Regular row and Italic row."""
+    section = page.split('<section id="stars"')[1].split("</section>")[0]
+    assert specimen.STAR_FACES == (specimen.REGULAR, specimen.ITALIC)
+    for size in specimen.STAR_SIZES:
+        for face in specimen.STAR_FACES:
+            assert f'<span class="label">{size}px {face.label}</span>' in section
+            assert f'<span class="{face.key}" style="font-size:{size}px">' in section
+    assert section.count('class="starrow"') == len(specimen.STAR_SIZES) * len(
+        specimen.STAR_FACES
+    )
+
+
+def test_the_star_lede_states_the_italic_treatment_it_was_given(page: str) -> None:
+    """The angles come from ``sources/stars.toml``, so retuning the treatment
+    retunes the sentence rather than leaving the page saying the old number."""
+    other = specimen.render(
+        family=FAMILY,
+        rows=ROWS,
+        paragraphs=PARAGRAPHS,
+        names=NAMES,
+        italic=stars.ItalicTreatment(rotation=20.0, stack_slant=4.0),
+        inventory="✽⁎•",
+    )
+    lede = page.split('<section id="stars"')[1].split("</section>")[0]
+    assert f"turned {ITALIC_TREATMENT.rotation:g}°" in lede
+    assert f"lean {ITALIC_TREATMENT.stack_slant:g}°" in lede
+    changed = other.split('<section id="stars"')[1].split("</section>")[0]
+    assert "turned 20°" in changed and "lean 4°" in changed
 
 
 def test_the_weight_ramp_walks_every_weight_with_a_symbol_inline(page: str) -> None:
@@ -273,7 +321,7 @@ def test_build_refuses_when_the_web_fonts_are_not_there(tmp_path: Path) -> None:
 
 
 def test_build_writes_the_page_where_the_release_zip_expects_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repo_root: Path
 ) -> None:
     fonts = tmp_path / "fonts"
     (fonts / "webfonts").mkdir(parents=True)
@@ -305,6 +353,11 @@ def test_build_writes_the_page_where_the_release_zip_expects_it(
         + "\n",
         encoding="utf-8",
     )
+    # The star section states the italic treatment's own angles, so `build`
+    # has to read them from the root it was handed.
+    shutil.copyfile(
+        repo_root / "sources" / "stars.toml", tmp_path / "sources" / "stars.toml"
+    )
     (tmp_path / "qa").mkdir()
     (tmp_path / "qa" / "specimen-text.txt").write_text(
         "\n\n".join(PARAGRAPHS) + "\n", encoding="utf-8"
@@ -314,3 +367,5 @@ def test_build_writes_the_page_where_the_release_zip_expects_it(
     assert output == fonts / "specimen" / "index.html"
     page = output.read_text(encoding="utf-8")
     assert page.count("<li data-source=") == len(ROWS)
+    checked_in = stars.load_parameters(stars.parameters_path_for(tmp_path)).italic
+    assert f"turned {checked_in.rotation:g}°" in page

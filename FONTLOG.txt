@@ -12,7 +12,8 @@ Basic Font Information
 Asterwell Text is a serif text family for reading and for user
 interfaces: a full prose face in roman and italic, plus a curated set of
 symbols, markers and ornaments that share the prose face's colour and
-sit upright alongside it.
+keep their form at every weight; in the italic the stars turn but do
+not slant.
 
     Family      Asterwell Text
     Version     1.000
@@ -39,12 +40,20 @@ The family is assembled from three sources:
 
   * An original six-petal star family drawn for this project, from one
     parametric template: U+273D HEAVY TEARDROP-SPOKED ASTERISK at full
-    size, and U+204E LOW ASTERISK, U+2051 TWO ASTERISKS ALIGNED
-    VERTICALLY and U+2042 ASTERISM built from one shared small-star
-    outline. U+2042 replaces Literata's own asterism so the four read
-    as one set. The four- and eight-spoke members of the same style
-    (U+2722, U+274A, U+274B) are DejaVu Sans imports for now: a
-    different spoke count needs its own optical tuning, which is
+    size, with its siblings U+273B TEARDROP-SPOKED ASTERISK, U+273C
+    OPEN CENTRE TEARDROP-SPOKED ASTERISK, U+273E SIX PETALLED BLACK AND
+    WHITE FLORETTE and U+2743 HEAVY TEARDROP-SPOKED PINWHEEL ASTERISK
+    drawn from the same template as its lighter, open-centred,
+    hollow-petalled and pinwheel variants, and U+204E LOW ASTERISK,
+    U+2051 TWO ASTERISKS ALIGNED VERTICALLY and U+2042 ASTERISM built
+    from one shared small-star outline. U+2042 replaces Literata's own
+    asterism so the eight read as one set. In the italic the template
+    is turned 30 degrees, so the petals point up-left and up-right
+    rather than one straight up, and the stacked stars of U+2051 and
+    U+2042 lean with the italic as Literata's own colon and asterism
+    do; nothing is sheared. The four- and eight-spoke members of the
+    same style (U+2722, U+274A, U+274B) are DejaVu Sans imports for
+    now: a different spoke count needs its own optical tuning, which is
     planned, not overlooked.
 
 The SIL Open Font License and its FAQ: https://openfontlicense.org
@@ -108,8 +117,8 @@ sources/allowlist.tsv, together with the source of its outline:
                over DejaVu's), except where the row's note column
                records a per-code-point override
 
-As of version 1.000 that file has 532 rows: 4 custom, 24 literata and
-504 dejavu. The file is generated from the pinned upstream fonts and
+As of version 1.000 that file has 532 rows: 8 custom, 24 literata and
+500 dejavu. The file is generated from the pinned upstream fonts and
 checked in, so changing an upstream pin or an allowlist rule produces a
 reviewable coverage diff rather than a silent change in what the family
 covers.

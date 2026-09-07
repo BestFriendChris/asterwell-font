@@ -14,8 +14,10 @@ the character grid.
 sizes across all four RIBBI styles, which is where a symbol that is right at
 24 px and illegible at 12 px gives itself away.
 
-*The stars*, ✽ ⁎ ⁑ ⁂, beside the asterisk and the diamond they have to live
-with, at three sizes.
+*The stars*, ✽ ✻ ✼ ✾ ❃ ⁎ ⁑ ⁂, beside the asterisk and the diamond they have to
+live with, at three sizes and in both styles — a Regular row and an Italic row
+at each, because the italic turns the template and leans the stacks (D21) and
+the only way to judge that is to see the two rows together.
 
 *A weight ramp* from 200 to 900 with a symbol inline: the symbols carry no
 ``gvar`` deltas (D5), so the ramp is where "the ornament holds still while the
@@ -43,7 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
-from asterwell_build import allowlist, assemble, upstream, web
+from asterwell_build import allowlist, assemble, stars, upstream, web
 from asterwell_build.assemble import Family
 
 Log = Callable[[str], None]
@@ -107,10 +109,15 @@ PROSE_SIZES = (17, 19, 34)
 INVENTORY_SIZES = (12, 14, 17, 24)
 STAR_SIZES = (17, 34, 72)
 
-#: The four original ornaments, then the two characters they have to sit beside:
-#: Literata's own asterisk (which ⁎ ⁑ ⁂ borrow their advance from) and its
-#: diamond (the heaviest symbol the family already had).
-STAR_ROW = ("✽", "⁎", "⁑", "⁂", "*", "◆")
+#: The eight ornaments — the five full-size drawings of the one template, then
+#: the three built from the small star — and the two characters they have to sit
+#: beside: Literata's own asterisk (which ⁎ ⁑ ⁂ borrow their advance from) and
+#: its diamond (the heaviest symbol the family already had).
+STAR_ROW = ("✽", "✻", "✼", "✾", "❃", "⁎", "⁑", "⁂", "*", "◆")
+
+#: The star row is shown in both styles: the italic's stars are turned and its
+#: stacks lean (D21), so a single row would hide half the family.
+STAR_FACES = (REGULAR, ITALIC)
 
 #: Weights the ramp walks, and the symbol carried along to prove it holds still.
 RAMP_WEIGHTS = (200, 300, 400, 500, 600, 700, 800, 900)
@@ -351,21 +358,34 @@ shipped style, at the sizes a user interface actually uses them at.</p>
 </section>"""
 
 
-def _stars_section() -> str:
+def _stars_section(italic: stars.ItalicTreatment) -> str:
+    """The family at three sizes, in both styles.
+
+    Two rows per size, not one: the italic is a different drawing of the same
+    template (D21), and the point of this section is to be able to see that —
+    the turn in ✽ ✻ ✼ ✾ ❃, the lean in ⁑ and ⁂ — beside the roman it has to set
+    with. The angles are read from ``sources/stars.toml`` rather than typed out,
+    so retuning the treatment retunes this paragraph with it.
+    """
     rows = "".join(
-        f'<div class="starrow"><span class="label">{size}px</span>'
+        f'<div class="starrow"><span class="label">{size}px {face.label}</span>'
         + "".join(
-            f'<span class="regular" style="font-size:{size}px">{_escape(char)}</span>'
+            f'<span class="{face.key}" style="font-size:{size}px">{_escape(char)}</span>'
             for char in STAR_ROW
         )
         + "</div>"
         for size in STAR_SIZES
+        for face in STAR_FACES
     )
     return f"""<section id="stars">
 <h2>The star family</h2>
-<p class="lede">✽ ⁎ ⁑ ⁂ — one full-size outline and one small outline used three
-times — beside Literata's own asterisk, whose advance ⁎ ⁑ ⁂ inherit, and its
-diamond.</p>
+<p class="lede">✽ ✻ ✼ ✾ ❃ — five full-size drawings of one parametric template —
+and ⁎ ⁑ ⁂, built from one small outline used up to three times, beside
+Literata's own asterisk, whose advance ⁎ ⁑ ⁂ inherit, and its diamond.
+In the italic the template is turned {italic.rotation:g}°, so the petals point
+up-left and up-right rather than one straight up, and the stacked stars of ⁑ and
+⁂ lean {italic.stack_slant:g}° with the italic the way its colon and its own
+asterism do; nothing is sheared.</p>
 {rows}
 </section>"""
 
@@ -428,6 +448,7 @@ def render(
     rows: Sequence[allowlist.Row],
     paragraphs: Sequence[str],
     names: Mapping[str, str],
+    italic: stars.ItalicTreatment,
     inventory: str = allowlist.REQUIRED_INVENTORY,
 ) -> str:
     """The complete page, as one string."""
@@ -446,7 +467,7 @@ def render(
 {_header(family, rows, names)}
 {_prose_section(paragraphs)}
 {_inventory_section(inventory)}
-{_stars_section()}
+{_stars_section(italic)}
 {_ramp_section()}
 {_allowlist_section(rows)}
 </div>
@@ -488,11 +509,20 @@ def build(root: Path | None = None, *, quiet: bool = False) -> Path:
     paragraphs = load_paragraphs(text_path_for(root))
     names = webfont_names(family)
     _require_webfonts(root, names.values())
+    # The star section states the italic treatment's own numbers, so it is read
+    # from the same file the fonts were drawn from rather than restated here.
+    parameters = stars.load_parameters(stars.parameters_path_for(root))
 
     output = output_path_for(root)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        render(family=family, rows=rows, paragraphs=paragraphs, names=names),
+        render(
+            family=family,
+            rows=rows,
+            paragraphs=paragraphs,
+            names=names,
+            italic=parameters.italic,
+        ),
         encoding="utf-8",
     )
     log(

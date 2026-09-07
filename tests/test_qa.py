@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import os
 from collections.abc import Iterator
 from io import BytesIO
@@ -283,22 +284,29 @@ def family_paths(
     return paths
 
 
-ROWS = (
-    ("U+2022", "bullet", allowlist.SOURCE_LITERATA, "bullet"),
-    ("U+2042", "uni2042", allowlist.SOURCE_CUSTOM, "uni2042"),
-    ("U+204E", "uni204E", allowlist.SOURCE_CUSTOM, "uni204E"),
-    ("U+2051", "uni2051", allowlist.SOURCE_CUSTOM, "uni2051"),
-    ("U+273D", "uni273D", allowlist.SOURCE_CUSTOM, "uni273D"),
-    ("U+2731", "uni2731", allowlist.SOURCE_DEJAVU, "uni2731"),
-)
+#: The stand-in manifest, as ``(source, glyph name)`` per code point. Its custom
+#: rows are the star family itself, read from :data:`stars.CODEPOINTS` rather
+#: than typed out: the synthetic font is built from ``stars.GLYPH_ORDER``, so a
+#: family that grows a glyph would otherwise map a code point this manifest has
+#: never heard of and fail the coverage check for a reason that is about the
+#: fixture and not about the build — which is exactly what ✻ ✼ ✾ ❃ did.
+ROWS = {
+    0x2022: (allowlist.SOURCE_LITERATA, "bullet"),
+    **{
+        codepoint: (allowlist.SOURCE_CUSTOM, name)
+        for name, codepoint in stars.CODEPOINTS.items()
+        if codepoint is not None
+    },
+    IMPORTED_CODEPOINT: (allowlist.SOURCE_DEJAVU, IMPORTED),
+}
 
 
 @pytest.fixture(scope="session")
 def rows() -> list[allowlist.Row]:
-    """A six-row stand-in manifest covering all three sources."""
+    """A stand-in manifest covering all three sources."""
     built = []
-    for spelling, _name, source, glyph_name in ROWS:
-        codepoint = int(spelling[2:], 16)
+    for codepoint, (source, glyph_name) in sorted(ROWS.items()):
+        spelling = f"U+{codepoint:04X}"
         built.append(
             allowlist.Row(
                 codepoint=codepoint,
@@ -851,6 +859,47 @@ def test_stars_catch_a_missing_ornament(
     assert f"{stars.FULL} is missing" in qa.star_problems(built, reference.stars)
 
 
+def test_stars_catch_a_point_that_moved_inside_the_bounding_box(
+    built: TTFont, reference: qa.StyleReference
+) -> None:
+    """The envelope is not the outline: a point can move a long way without the
+    box or the advance noticing, which is why the drawn stars are compared with
+    the generator's own points."""
+    glyph = built["glyf"][stars.FULL]
+    x, y = glyph.coordinates[8]
+    glyph.coordinates[8] = (x + 5, y - 5)
+    problems = qa.star_problems(built, reference.stars)
+    assert problems == [f"{stars.FULL} is not the outline `stars` draws: 1 point(s) moved"]
+
+
+def test_stars_catch_an_outline_with_the_wrong_number_of_points(
+    built: TTFont, reference: qa.StyleReference
+) -> None:
+    glyph = built["glyf"][stars.LIGHT]
+    glyph.coordinates = glyph.coordinates[:-1]
+    glyph.flags = glyph.flags[:-1]
+    glyph.endPtsOfContours = [len(glyph.coordinates) - 1]
+    problems = qa.star_problems(built, reference.stars)
+    assert any("point(s) in" in problem for problem in problems)
+
+
+def test_the_italic_is_checked_against_its_own_turned_template(
+    family_paths: dict[str, Path],
+    parameters: stars.Parameters,
+    reference: qa.StyleReference,
+) -> None:
+    """``star_problems`` takes the expectation for the style it is checking, so
+    the italic passes against the turned template and fails against the roman's
+    — the check would be blind to a style that shipped the wrong drawing."""
+    font = assemble.open_source_font(family_paths["built-italic"])
+    try:
+        assert qa.star_problems(font, stars.build_glyphs(parameters, "italic")) == []
+        against_the_roman = qa.star_problems(font, reference.stars)
+        assert any(stars.FULL in problem for problem in against_the_roman)
+    finally:
+        font.close()
+
+
 def _signatures(paths: dict[str, Path]) -> dict[str, qa.StarSignature]:
     signatures = {}
     for key in ("roman", "italic"):
@@ -864,27 +913,96 @@ def _signatures(paths: dict[str, Path]) -> dict[str, qa.StarSignature]:
     return signatures
 
 
-def test_the_two_styles_share_one_star_drawing(family_paths: dict[str, Path]) -> None:
-    """The outlines are byte-identical; the composites differ only by the
-    asterisk advance each style inherits, which the signature normalises away."""
-    signatures = _signatures(family_paths)
-    assert qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE) == []
-    assert signatures["roman"].outlines == signatures["italic"].outlines
-    assert signatures["roman"].components == signatures["italic"].components
-
-
-def test_a_star_that_leans_in_the_italic_fails(family_paths: dict[str, Path]) -> None:
-    signatures = _signatures(family_paths)
+def _replace_outline(
+    signatures: dict[str, qa.StarSignature],
+    name: str,
+    outline: tuple[tuple[int, ...], ...],
+) -> None:
     outlines = dict(signatures["italic"].outlines)
-    coordinates, ends, flags = outlines[stars.FULL]
-    outlines[stars.FULL] = (tuple(value + 3 for value in coordinates), ends, flags)
+    outlines[name] = outline
     signatures["italic"] = dataclasses.replace(signatures["italic"], outlines=outlines)
-    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE)
-    assert any(stars.FULL in problem for problem in problems)
+
+
+def _transformed(
+    outline: tuple[tuple[int, ...], ...], matrix: tuple[float, float, float, float]
+) -> tuple[tuple[int, ...], ...]:
+    """One signature outline through a 2×2 matrix, rounded back to the grid."""
+    coordinates, ends, flags = outline
+    a, b, c, d = matrix
+    moved: list[int] = []
+    for x, y in zip(coordinates[0::2], coordinates[1::2]):
+        moved += [round(a * x + c * y), round(b * x + d * y)]
+    return (tuple(moved), ends, flags)
+
+
+def _stack_shift(
+    components: tuple[tuple[str, int, int], ...],
+) -> float:
+    """Top star minus the mean of the ones below it, in font units."""
+    ordered = sorted(components, key=lambda component: component[2])
+    below = ordered[:-1]
+    return (ordered[-1][1] - sum(x for _, x, _ in below) / len(below)) / 2.0
+
+
+def test_the_italic_stars_are_the_roman_turned(
+    family_paths: dict[str, Path], parameters: stars.Parameters
+) -> None:
+    """D21, as the gate reads it: the two styles no longer share one drawing —
+    the italic's outlines are the roman's turned by ``rotation`` about their own
+    centres, and its *stacks* stand off by the mean-height lean while ⁎, a stack
+    of one, sits exactly where the roman puts it."""
+    signatures = _signatures(family_paths)
+    assert qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters) == []
+
+    roman, italic = signatures["roman"], signatures["italic"]
+    # Every drawn star is compared, not just ✽ and the small one it shares.
+    assert set(roman.outlines) == {stars.SMALL, stars.FULL, *stars.VARIANTS}
+    assert set(roman.components) == {stars.ONE, stars.TWO, stars.THREE}
+    for name, outline in roman.outlines.items():
+        assert outline != italic.outlines[name], f"{name} is not one drawing any more"
+    assert roman.components[stars.ONE] == italic.components[stars.ONE]
+    for name, expected in ((stars.TWO, 19.0), (stars.THREE, 16.0)):
+        assert roman.components[name] != italic.components[name]
+        assert _stack_shift(roman.components[name]) == 0.0
+        assert _stack_shift(italic.components[name]) == pytest.approx(expected, abs=0.5)
+
+
+def test_an_italic_star_that_is_not_a_rotation_fails(
+    family_paths: dict[str, Path], parameters: stars.Parameters
+) -> None:
+    """A skew is not a turn. Shearing ✽ leaves a star of the same area, the same
+    point count and nearly the same box — and it must still be caught, or the
+    check would pass the one thing D21 rules out."""
+    signatures = _signatures(family_paths)
+    _replace_outline(
+        signatures,
+        stars.FULL,
+        _transformed(signatures["italic"].outlines[stars.FULL], (1.0, 0.0, 0.3, 1.0)),
+    )
+    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters)
+    assert [problem for problem in problems if stars.FULL in problem]
+    assert all("not the roman turned" in problem for problem in problems)
+
+
+def test_an_italic_star_turned_by_the_wrong_amount_fails(
+    family_paths: dict[str, Path], parameters: stars.Parameters
+) -> None:
+    """Half the turn is not the turn: the rule is the configured angle, not
+    "some rotation"."""
+    signatures = _signatures(family_paths)
+    angle = math.radians(parameters.italic.rotation / 2.0)
+    cos, sin = math.cos(angle), math.sin(angle)
+    _replace_outline(
+        signatures,
+        stars.SMALL,
+        _transformed(signatures["roman"].outlines[stars.SMALL], (cos, sin, -sin, cos)),
+    )
+    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters)
+    assert any(stars.SMALL in problem for problem in problems)
 
 
 def test_a_composite_arranged_differently_in_the_italic_fails(
-    family_paths: dict[str, Path],
+    family_paths: dict[str, Path], parameters: stars.Parameters
 ) -> None:
     signatures = _signatures(family_paths)
     components = dict(signatures["italic"].components)
@@ -894,8 +1012,36 @@ def test_a_composite_arranged_differently_in_the_italic_fails(
     signatures["italic"] = dataclasses.replace(
         signatures["italic"], components=components
     )
-    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE)
-    assert any("arranged differently" in problem for problem in problems)
+    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters)
+    assert any(stars.THREE in problem for problem in problems)
+
+
+@pytest.mark.parametrize("name", [stars.TWO, stars.THREE])
+def test_a_stack_that_does_not_lean_by_the_configured_amount_fails(
+    family_paths: dict[str, Path], parameters: stars.Parameters, name: str
+) -> None:
+    """An italic stack standing upright — ⁑'s two stars in one column, ⁂'s top
+    star centred over its pair — is the pre-D21 arrangement, and is caught."""
+    signatures = _signatures(family_paths)
+    components = dict(signatures["italic"].components)
+    ordered = sorted(components[name], key=lambda component: component[2])
+    below = ordered[:-1]
+    upright = round(sum(x for _, x, _ in below) / len(below))
+    components[name] = tuple(below) + ((ordered[-1][0], upright, ordered[-1][2]),)
+    signatures["italic"] = dataclasses.replace(
+        signatures["italic"], components=components
+    )
+    problems = qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters)
+    assert any(f"{name}'s top star" in problem for problem in problems)
+
+
+def test_one_style_on_its_own_is_not_compared(
+    family_paths: dict[str, Path], parameters: stars.Parameters
+) -> None:
+    """A run that saw only one style has nothing to say about the other."""
+    signatures = _signatures(family_paths)
+    del signatures["italic"]
+    assert qa.cross_style_star_problems(signatures, qa.KIND_VARIABLE, parameters) == []
 
 
 # --------------------------------------------------------------------------- #
