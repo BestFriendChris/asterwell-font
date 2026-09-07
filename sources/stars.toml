@@ -1,0 +1,21 @@
+# Parameters of the original six-petal star family (✽ ⁎ ⁑ ⁂), in Literata
+# units (1000 upem). src/asterwell_build/stars.py is the construction; this
+# file is the only place its proportions are tuned.
+
+[template]
+petals        = 6
+orientation   = 90       # degrees; first petal points straight up
+cubic_max_err = 1.0      # cu2qu tolerance
+
+[full]                   # ✽ U+273D
+radius        = 360      # outer radius; diameter 720 = cap height 700 + 20 overshoot (DejaVu's ✽ is 1549/1493 of its cap height)
+petal_width   = 0.22     # bulb radius as a fraction of radius
+hub           = 0.10     # hub disc radius as a fraction of radius
+advance       = 805      # = DejaVu dingbat advance 1716 × k, so ✽ sits like the imported ✱ ✦ ✎
+center_y      = 350      # cap-height midpoint
+
+[small]                  # the shared small star used by ⁎ ⁑ ⁂
+radius        = 180      # diameter 360 ≈ Literata's `*` height (375)
+petal_width   = 0.26     # heavier petals than `full` — optical compensation, not a scaled copy
+hub           = 0.14
+gap           = 54       # edge-to-edge gap between stars in ⁑ and ⁂ (center distance = 2·radius + gap = 414)

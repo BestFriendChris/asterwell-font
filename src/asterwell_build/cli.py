@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 
-from asterwell_build import allowlist, upstream
+from asterwell_build import allowlist, stars, upstream
 
 # Ordered command surface: name -> one-line help. The order is the pipeline
 # order and is what ``asterwell-build --help`` lists.
@@ -46,12 +46,14 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 }
 COMMANDS["fetch"] = upstream.run
 COMMANDS["allowlist"] = allowlist.run
+COMMANDS["stars"] = stars.run
 
 # name -> function adding that command's own options to its subparser. A command
 # with no options of its own is simply absent.
 COMMAND_ARGUMENTS: dict[str, Callable[[argparse.ArgumentParser], None]] = {
     "fetch": upstream.add_arguments,
     "allowlist": allowlist.add_arguments,
+    "stars": stars.add_arguments,
 }
 
 
