@@ -1,5 +1,9 @@
 [custom]                     # original outlines; precedence 1
-codepoints = ["U+273D", "U+204E", "U+2051", "U+2042"]
+# The teardrop-spoked family — ✽ and its four siblings ✻ ✼ ✾ ❃ — is drawn from
+# one template in stars.py, so all five are ours rather than four DejaVu imports
+# beside one original (D24). ✢ U+2722 and ❊ ❋ U+274A/U+274B are the same style
+# with a different spoke count and stay imports for now; see FONTLOG.txt.
+codepoints = ["U+273D", "U+273B", "U+273C", "U+273E", "U+2743", "U+204E", "U+2051", "U+2042"]
 
 [ranges]                     # seed scope from the design doc; precedence 3 (after preserved Literata)
 "Dingbats"                         = ["U+2700", "U+27BF"]

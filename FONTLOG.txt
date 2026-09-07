@@ -42,7 +42,10 @@ The family is assembled from three sources:
     size, and U+204E LOW ASTERISK, U+2051 TWO ASTERISKS ALIGNED
     VERTICALLY and U+2042 ASTERISM built from one shared small-star
     outline. U+2042 replaces Literata's own asterism so the four read
-    as one set.
+    as one set. The four- and eight-spoke members of the same style
+    (U+2722, U+274A, U+274B) are DejaVu Sans imports for now: a
+    different spoke count needs its own optical tuning, which is
+    planned, not overlooked.
 
 The SIL Open Font License and its FAQ: https://openfontlicense.org
 

@@ -20,7 +20,7 @@
 #     sha256 7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954
 #     from   https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2
 #
-# 532 rows: 4 custom, 24 literata, 504 dejavu
+# 532 rows: 8 custom, 24 literata, 500 dejavu
 # 21 rows are emoji-presentation by default and need U+FE0E in text
 # 0 imported code point(s) appear in Bitstream Vera Sans 1.10 (qa/vera-1.10-codepoints.txt); this must be 0
 #
@@ -402,15 +402,15 @@ U+2737	✷	EIGHT POINTED RECTILINEAR BLACK STAR	Dingbats	dejavu	uni2737	Dingbats
 U+2738	✸	HEAVY EIGHT POINTED RECTILINEAR BLACK STAR	Dingbats	dejavu	uni2738	Dingbats	no	
 U+2739	✹	TWELVE POINTED BLACK STAR	Dingbats	dejavu	uni2739	Dingbats	no	
 U+273A	✺	SIXTEEN POINTED ASTERISK	Dingbats	dejavu	uni273A	Dingbats	no	
-U+273B	✻	TEARDROP-SPOKED ASTERISK	Dingbats	dejavu	uni273B	Dingbats	no	
-U+273C	✼	OPEN CENTRE TEARDROP-SPOKED ASTERISK	Dingbats	dejavu	uni273C	Dingbats	no	
+U+273B	✻	TEARDROP-SPOKED ASTERISK	Dingbats	custom	uni273B	custom	no	
+U+273C	✼	OPEN CENTRE TEARDROP-SPOKED ASTERISK	Dingbats	custom	uni273C	custom	no	
 U+273D	✽	HEAVY TEARDROP-SPOKED ASTERISK	Dingbats	custom	uni273D	custom	no	
-U+273E	✾	SIX PETALLED BLACK AND WHITE FLORETTE	Dingbats	dejavu	uni273E	Dingbats	no	
+U+273E	✾	SIX PETALLED BLACK AND WHITE FLORETTE	Dingbats	custom	uni273E	custom	no	
 U+273F	✿	BLACK FLORETTE	Dingbats	dejavu	uni273F	Dingbats	no	
 U+2740	❀	WHITE FLORETTE	Dingbats	dejavu	uni2740	Dingbats	no	
 U+2741	❁	EIGHT PETALLED OUTLINED BLACK FLORETTE	Dingbats	dejavu	uni2741	Dingbats	no	
 U+2742	❂	CIRCLED OPEN CENTRE EIGHT POINTED STAR	Dingbats	dejavu	uni2742	Dingbats	no	
-U+2743	❃	HEAVY TEARDROP-SPOKED PINWHEEL ASTERISK	Dingbats	dejavu	uni2743	Dingbats	no	
+U+2743	❃	HEAVY TEARDROP-SPOKED PINWHEEL ASTERISK	Dingbats	custom	uni2743	custom	no	
 U+2744	❄	SNOWFLAKE	Dingbats	dejavu	uni2744	Dingbats	no	
 U+2745	❅	TIGHT TRIFOLIATE SNOWFLAKE	Dingbats	dejavu	uni2745	Dingbats	no	
 U+2746	❆	HEAVY CHEVRON SNOWFLAKE	Dingbats	dejavu	uni2746	Dingbats	no	

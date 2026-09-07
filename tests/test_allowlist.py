@@ -29,7 +29,13 @@ from asterwell_build.cli import COMMANDS, build_parser
 
 INVENTORY = tuple(ord(char) for char in allowlist.REQUIRED_INVENTORY)
 
-#: The four original outlines, as the real rules name them.
+#: The eight original outlines the checked-in rules name, in file order: the
+#: teardrop-spoked family ✽ ✻ ✼ ✾ ❃, all five drawn from one template (D24),
+#: and the three asterisk marks ⁎ ⁑ ⁂.
+CHECKED_IN_CUSTOM = (0x273D, 0x273B, 0x273C, 0x273E, 0x2743, 0x204E, 0x2051, 0x2042)
+
+#: What the synthetic :data:`RULES` below call custom — four of the eight, which
+#: is all the fixtures need; the real list is :data:`CHECKED_IN_CUSTOM`.
 CUSTOM = (0x273D, 0x204E, 0x2051, 0x2042)
 
 #: Stand-in for Literata: the inventory characters a real Literata draws, under
@@ -202,7 +208,7 @@ def repo(tmp_path: Path) -> Repo:
 def test_the_checked_in_rules_parse_into_the_documented_selection(repo_root: Path) -> None:
     rules = allowlist.load_rules(repo_root / "sources" / "allowlist.toml")
 
-    assert rules.custom == CUSTOM
+    assert rules.custom == CHECKED_IN_CUSTOM
     assert rules.ranges == {
         "Dingbats": (0x2700, 0x27BF),
         "Miscellaneous Symbols": (0x2600, 0x26FF),

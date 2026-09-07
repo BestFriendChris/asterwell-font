@@ -1,6 +1,6 @@
-# Parameters of the original six-petal star family (✽ ⁎ ⁑ ⁂), in Literata
-# units (1000 upem). src/asterwell_build/stars.py is the construction; this
-# file is the only place its proportions are tuned.
+# Parameters of the original six-petal star family (✽ ✻ ✼ ✾ ❃ ⁎ ⁑ ⁂), in
+# Literata units (1000 upem). src/asterwell_build/stars.py is the construction;
+# this file is the only place its proportions are tuned.
 
 [template]
 petals        = 6
@@ -14,6 +14,32 @@ hub           = 0.10     # hub disc radius as a fraction of radius
 advance       = 805      # = DejaVu dingbat advance 1716 × k, so ✽ sits like the imported ✱ ✦ ✎
 center_y      = 350      # cap-height midpoint
 
+# ✽'s four siblings (D24). Each states only what makes its shape its own:
+# radius, advance and center_y are copied from [full] by the loader — stating
+# one here is an error — so the five full-size stars can never drift apart.
+
+[light]                  # ✻ U+273B — ✽'s template, lighter
+petal_width   = 0.16     # vs 0.22 for ✽: the petal is 27 % narrower, the star's ink 70 % of ✽'s
+hub           = 0.10     # same hub as ✽, so the petals join at the centre the same way
+
+[open]                   # ✼ U+273C — the light star with its centre opened
+petal_width   = 0.16     # same petals as [light]
+ring          = 0.24     # outer radius of the ring that joins the petals, as a fraction of radius (86 units)
+open_centre   = 0.15     # radius of the round counter cut from the centre (54 units; the hole is 108 across)
+                         # ring width 32 ≈ the petal width where it meets the ring (34): one stroke weight
+
+[florette]               # ✾ U+273E — ✽ with its three alternate petals hollowed
+petal_width   = 0.22     # ✽'s petals
+hub           = 0.10
+wall          = 0.12     # wall of a hollow petal, as a fraction of radius (43 units); DejaVu's is 0.13, ✼'s ring 0.09
+hollow        = [0, 2, 4] # which petals are hollow, counting from the one on the orientation axis (the top one in the roman)
+
+[pinwheel]               # ❃ U+2743 — ✽ with every blade leaning the same way
+petal_width   = 0.22
+hub           = 0.10
+shear         = 0.30     # x += shear · y in each petal's own frame before it is turned to its axis: a 17° lean, clockwise.
+                         # The radius is divided by sqrt(1 + shear²) so the leaning blades reach exactly as far as ✽'s.
+
 [small]                  # the shared small star used by ⁎ ⁑ ⁂
 radius        = 180      # diameter 360 ≈ Literata's `*` height (375)
 petal_width   = 0.26     # heavier petals than `full` — optical compensation, not a scaled copy
@@ -26,5 +52,5 @@ rotation   = 30          # degrees the template turns in the italic: petals at 6
 stack_slant = 2.5        # degrees the stacked stars of ⁑ and ⁂ lean, tops to the right. Each star in a stack
                          # moves horizontally by (its centre height − the stack's mean centre height) · tan(stack_slant):
                          # ⁑'s two stars ±9 units, ⁂'s top star +16 over its pair — the same 16 Literata Italic's
-                         # own ⁂ uses; its colon leans 2.49°, its semicolon 3.30°. Outlines are never sheared;
-                         # single stars (⁎ ✽) do not lean.
+                         # own ⁂ uses; its colon leans 2.49°, its semicolon 3.30°. Outlines are never sheared
+                         # by the italic; single stars (⁎ ✽ ✻ ✼ ✾ ❃) do not lean.

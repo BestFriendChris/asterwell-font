@@ -1,20 +1,39 @@
-"""Construct the family's four original stars from one parametric template.
+"""Construct the family's nine original stars from one parametric template.
 
 The design asks for a six-teardrop-petal star drawn from scratch — not traced,
-not scaled from anyone else's outline — at one display size and in three
-arrangements of a smaller one::
+not scaled from anyone else's outline — at one display size, in four variations
+of it, and in three arrangements of a smaller one::
 
     ✽  U+273D  uni273D     one full-size star, the family's display ornament
+    ✻  U+273B  uni273B     the same star with lighter petals
+    ✼  U+273C  uni273C     the light star with a round counter and a ring
+    ✾  U+273E  uni273E     ✽ with its three alternate petals hollowed
+    ❃  U+2743  uni2743     ✽ with every petal sheared into a leaning blade
     ⁎  U+204E  uni204E     one small star where an asterisk would sit
     ⁑  U+2051  uni2051     two small stars, stacked
     ⁂  U+2042  uni2042     three small stars, one above two (replaces
                            Literata's own composite-of-asterisks)
 
 Everything here is generated from ``sources/stars.toml`` by the same code, so
-the four glyphs are provably one design: a *petal* is the convex hull of a point
+the nine glyphs are provably one design: a *petal* is the convex hull of a point
 at the origin and a circle of radius ``w = petal_width · R`` centred at
 ``(0, R − w)`` — two tangent lines and the outer arc — and a *star* is six of
 those rotated around a hub disc and unioned into a single contour.
+
+*The four siblings of ✽* (D24) are that same template with one number changed
+each, which is the whole point: Unicode files U+273B–U+273E and U+2743 as one
+family, and until this revision four of the five were DejaVu imports sitting
+beside a custom ✽. ✻ is the template with narrower petals (Unicode calls ✽ the
+*heavy* one). ✼ is ✻ with the hub grown into a ``ring`` and a round
+``open_centre`` counter cut out of it, so the star stays one connected shape
+around its hole. ✾ is ✽ with the three alternate petals hollowed to a ``wall``
+— each counter is the same teardrop offset inward, so the wall is even all the
+way round. ❃ is ✽ with every petal ``shear``-ed in its own frame before it is
+turned to its axis, which makes six blades leaning the same way; because a
+sheared blade reaches ``√(1 + shear²)`` times as far, the radius is divided by
+that so the pinwheel's reach is exactly ✽'s. The four take ✽'s radius, advance
+and centre from ``[full]`` — the loader copies them, and a variant table that
+states one is an error — so the five cannot drift apart.
 
 The two sizes are **not** the same outline at two scales, which is what the
 design's "adjust spacing and stroke weight optically at small sizes rather than
@@ -41,8 +60,8 @@ horizontally by ``(its centre height − the stack's mean centre height) ·
 tan(stack_slant)``, so the group tilts as a whole while every star in it keeps
 the plain turned shape. That is how Literata Italic leans its own stacked marks
 (its colon 2.49°, its semicolon 3.30°, its ⁂ +16 units) — by displacement, not
-by skewing the mark. Single stars (⁎ and ✽) turn but never lean; a stack of one
-has nothing to lean about. What stays true across the two styles is D5: the
+by skewing the mark. Single stars (⁎ ✽ ✻ ✼ ✾ ❃) turn but never lean; a stack of
+one has nothing to lean about. What stays true across the two styles is D5: the
 stars are invariant along the ``wght`` and ``opsz`` axes, one fixed design at
 every weight and optical size.
 
@@ -63,17 +82,20 @@ computes over control points too — would sit up to 10 units outside the outlin
 
 The pipeline per star is: build the petals and hub as :class:`pathops.Path`
 objects → :func:`pathops.union` (which is a ``simplify``, so it also removes the
-overlaps that join the petals to the hub) → replay through
-``Cu2QuPen(TTGlyphPen(None), max_err=cubic_max_err)`` → round to integers. ⁎ ⁑ ⁂
-are composites of a single unencoded ``star.small`` outline, positioned by
-integer translation only, so the three of them cost one outline between them and
-can never drift apart.
+overlaps that join the petals to the hub) → for ✼ and ✾, :func:`pathops.difference`
+against the counters, which come out counter-clockwise, the way TrueType wants a
+hole → replay through ``Cu2QuPen(TTGlyphPen(None), max_err=cubic_max_err)`` →
+round to integers. ⁎ ⁑ ⁂ are composites of a single unencoded ``star.small``
+outline, positioned by integer translation only, so the three of them cost one
+outline between them and can never drift apart.
 
-``asterwell-build stars --svg build/stars.svg`` renders all four next to
-Literata's own ``*``, ``◆`` and ⁂ at the same scale — one row per style, the
-roman beside Literata's roman marks and the italic beside Literata *Italic*'s,
-so the turn and the lean are read against the italic's own asterisk and its own
-leaning asterism: the review artifact for the proportions this module decides.
+``asterwell-build stars --svg build/stars.svg`` renders all nine next to
+Literata's own ``*``, ``◆`` and ⁂ and next to DejaVu's own ✻ ✼ ✽ ✾ ❃ at the
+import scale — one row per style, the roman beside Literata's roman marks and
+the italic beside Literata *Italic*'s, so the turn and the lean are read against
+the italic's own asterisk and its own leaning asterism, and the four new stars
+against the imports they replace: the review artifact for the proportions this
+module decides.
 """
 
 from __future__ import annotations
@@ -83,7 +105,7 @@ import math
 import sys
 import tomllib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -92,6 +114,7 @@ from fontTools.misc.roundTools import otRound
 from fontTools.misc.transform import Transform
 from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.svgPathPen import SVGPathPen
+from fontTools.pens.transformPen import TransformPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables._g_l_y_f import Glyph
@@ -105,7 +128,9 @@ __all__ = [
     "Parameters",
     "StarGlyph",
     "StarsError",
+    "VariantStar",
     "build_glyphs",
+    "dejavu_cells",
     "glyf_table",
     "leaned",
     "load_parameters",
@@ -118,6 +143,10 @@ __all__ = [
 #: three composites share, and ``qa`` asserts no cmap subtable reaches it.
 SMALL = "star.small"
 FULL = "uni273D"
+LIGHT = "uni273B"
+OPEN = "uni273C"
+FLORETTE = "uni273E"
+PINWHEEL = "uni2743"
 ONE = "uni204E"
 TWO = "uni2051"
 THREE = "uni2042"
@@ -125,12 +154,26 @@ THREE = "uni2042"
 #: Insertion order for the assembly step: the component first, then the glyphs
 #: that use it. ``uni2042`` is last because it replaces a Literata glyph in
 #: place rather than being appended.
-GLYPH_ORDER = (SMALL, FULL, ONE, TWO, THREE)
+GLYPH_ORDER = (SMALL, FULL, LIGHT, OPEN, FLORETTE, PINWHEEL, ONE, TWO, THREE)
+
+#: ✽'s four siblings, and the ``sources/stars.toml`` table each is drawn from
+#: (D24). Everything but their shape — radius, advance, centre, the italic's
+#: turn — is ✽'s.
+VARIANTS: Mapping[str, str] = {
+    LIGHT: "light",
+    OPEN: "open",
+    FLORETTE: "florette",
+    PINWHEEL: "pinwheel",
+}
 
 #: Code point each glyph is mapped to; ``star.small`` gets none.
 CODEPOINTS: Mapping[str, int | None] = {
     SMALL: None,
     FULL: 0x273D,
+    LIGHT: 0x273B,
+    OPEN: 0x273C,
+    FLORETTE: 0x273E,
+    PINWHEEL: 0x2743,
     ONE: 0x204E,
     TWO: 0x2051,
     THREE: 0x2042,
@@ -177,6 +220,27 @@ COMPARISON_GLYPHS = (
     ("uni2042", "Literata ⁂", "U+2042 (replaced)"),
 )
 
+#: Basename of the DejaVu member the ``--svg`` comparison reads (D2).
+DEJAVU_MEMBER = "DejaVuSans.ttf"
+
+#: The five DejaVu dingbats the family now draws itself, shown beside the
+#: drawings that replace them. Four of them were `dejavu` rows of the allowlist
+#: until D24; ✽ never was. DejaVu builds its own ✼ ✾ ❃ the way this module does
+#: — ✽'s outer contour with counters cut into it (§14.8) — so the comparison is
+#: like for like.
+DEJAVU_COMPARISON_GLYPHS = (
+    ("uni273B", "DejaVu ✻", "U+273B (was imported)"),
+    ("uni273C", "DejaVu ✼", "U+273C (was imported)"),
+    ("uni273D", "DejaVu ✽", "U+273D (never imported)"),
+    ("uni273E", "DejaVu ✾", "U+273E (was imported)"),
+    ("uni2743", "DejaVu ❃", "U+2743 (was imported)"),
+)
+
+#: The import scale ``k`` the assembly step measures from the pinned pair (D6):
+#: Literata's ``sCapHeight`` 700 over DejaVu's ``H`` height 1493. Used here only
+#: to show the imports at the size they were imported at.
+DEJAVU_SCALE = 700.0 / 1493.0
+
 
 class StarsError(Exception):
     """The parameters are malformed, or the geometry they ask for is impossible."""
@@ -189,7 +253,13 @@ class StarsError(Exception):
 
 @dataclass(frozen=True)
 class Outline:
-    """The three numbers that decide a star's shape."""
+    """The numbers that decide a star's shape.
+
+    The first three are the whole of ✽ and of ``star.small``. The rest are
+    keyword-only and default to "not that variation", so a plain star reads
+    exactly as it did before D24 added its four siblings; each is one technique
+    the family uses exactly once.
+    """
 
     radius: float
     """Outer radius R: the distance from the centre to a petal tip."""
@@ -200,6 +270,48 @@ class Outline:
     hub: float
     """Hub-disc radius as a fraction of R; what joins the petals into one contour."""
 
+    ring: float | None = field(default=None, kw_only=True)
+    """✼: the joining disc's radius as a fraction of R, in place of ``hub``.
+
+    A star with an open centre cannot be held together by a hub the counter is
+    about to swallow, so the disc grows to a ring around the hole and the petals
+    meet on it.
+    """
+
+    open_centre: float | None = field(default=None, kw_only=True)
+    """✼: radius of the round counter cut from the centre, as a fraction of R."""
+
+    wall: float | None = field(default=None, kw_only=True)
+    """✾: wall left standing when a petal is hollowed, as a fraction of R."""
+
+    hollow: tuple[int, ...] = field(default=(), kw_only=True)
+    """✾: which petals are hollow, counting from the one on the orientation axis.
+
+    Indices, not angles, so the hollow petals turn with the star: the top petal
+    and its ±120° siblings in the roman, the same three petals after the
+    italic's 30° turn.
+    """
+
+    shear: float = field(default=0.0, kw_only=True)
+    """❃: ``x += shear · y`` in each petal's own frame, before it is turned.
+
+    A lean of ``atan(shear)`` — 17° at 0.30 — all six the same way, which is
+    what makes a pinwheel rather than a star.
+    """
+
+    @property
+    def drawn_radius(self) -> float:
+        """The radius the outline is actually built at.
+
+        A blade sheared by ``s`` reaches ``√(1 + s²)`` times as far from the
+        centre as the upright petal it was made from, so the pinwheel is built
+        at a radius divided by that factor and comes out reaching exactly as far
+        as ✽ (Q8c). Every other fraction here is a fraction of *this*, so the
+        compensation is one uniform scale of the whole star and nothing about
+        its proportions changes. With no shear it is ``radius`` exactly.
+        """
+        return self.radius / math.hypot(1.0, self.shear)
+
 
 @dataclass(frozen=True)
 class FullStar(Outline):
@@ -207,6 +319,17 @@ class FullStar(Outline):
 
     advance: int
     center_y: float
+
+
+@dataclass(frozen=True)
+class VariantStar(FullStar):
+    """``[light] [open] [florette] [pinwheel]`` — one of ✽'s four siblings (D24).
+
+    The same numbers a :class:`FullStar` carries, and that is the point: the
+    loader copies ``radius``, ``advance`` and ``center_y`` straight from
+    ``[full]`` and refuses a variant table that states one, so a sibling is ✽'s
+    size and placement with its own shape — never a second, drifting star.
+    """
 
 
 @dataclass(frozen=True)
@@ -247,7 +370,18 @@ class Parameters:
     cubic_max_err: float
     full: FullStar
     small: SmallStar
+    light: VariantStar
+    open: VariantStar
+    florette: VariantStar
+    pinwheel: VariantStar
     italic: ItalicTreatment
+
+    def outline_for(self, table: str) -> Outline:
+        """The outline one ``stars.toml`` table describes, by its name."""
+        outline = getattr(self, table, None)
+        if not isinstance(outline, Outline):
+            raise StarsError(f"no [{table}] outline in stars.toml")
+        return outline
 
 
 def parameters_path_for(root: Path) -> Path:
@@ -275,17 +409,22 @@ def load_parameters(path: Path) -> Parameters:
     if cubic_max_err <= 0:
         raise StarsError(f"{path}: [template] cubic_max_err must be positive")
 
+    full = FullStar(
+        radius=_number(path, "full", full_section, "radius"),
+        petal_width=_number(path, "full", full_section, "petal_width"),
+        hub=_number(path, "full", full_section, "hub"),
+        advance=int(_number(path, "full", full_section, "advance")),
+        center_y=_number(path, "full", full_section, "center_y"),
+    )
+    variants = {
+        table: _variant(path, raw, table, full, int(petals)) for table in VARIANTS.values()
+    }
+
     parameters = Parameters(
         petals=int(petals),
         orientation=_number(path, "template", template, "orientation"),
         cubic_max_err=cubic_max_err,
-        full=FullStar(
-            radius=_number(path, "full", full_section, "radius"),
-            petal_width=_number(path, "full", full_section, "petal_width"),
-            hub=_number(path, "full", full_section, "hub"),
-            advance=int(_number(path, "full", full_section, "advance")),
-            center_y=_number(path, "full", full_section, "center_y"),
-        ),
+        full=full,
         small=SmallStar(
             radius=_number(path, "small", small_section, "radius"),
             petal_width=_number(path, "small", small_section, "petal_width"),
@@ -296,6 +435,7 @@ def load_parameters(path: Path) -> Parameters:
             rotation=_number(path, "italic", italic_section, "rotation"),
             stack_slant=_number(path, "italic", italic_section, "stack_slant"),
         ),
+        **variants,
     )
     _validate(path, parameters)
     return parameters
@@ -315,10 +455,69 @@ def _number(path: Path, where: str, section: Mapping[str, object], key: str) -> 
     return float(value)
 
 
+#: What a variant table copies from ``[full]`` instead of stating. Repeating one
+#: would let a sibling drift away from ✽'s size or placement, which is exactly
+#: what drawing them from one template is for (D24).
+INHERITED_FROM_FULL = ("radius", "advance", "center_y")
+
+
+def _variant(
+    path: Path,
+    raw: Mapping[str, object],
+    name: str,
+    full: FullStar,
+    petals: int,
+) -> VariantStar:
+    """One of ✽'s siblings: ``[full]``'s size and placement, its own shape."""
+    section = _section(path, raw, name)
+    for inherited in INHERITED_FROM_FULL:
+        if inherited in section:
+            raise StarsError(
+                f"{path}: [{name}] must not state {inherited}: a sibling of ✽ is "
+                f"drawn at ✽'s size and placement, so {', '.join(INHERITED_FROM_FULL)} "
+                "come from [full] and cannot drift"
+            )
+
+    def optional(key: str) -> float | None:
+        return _number(path, name, section, key) if key in section else None
+
+    hollow = section.get("hollow", [])
+    if not isinstance(hollow, list) or any(
+        isinstance(index, bool) or not isinstance(index, int) for index in hollow
+    ):
+        raise StarsError(
+            f"{path}: [{name}] hollow must be a list of petal indices, got {hollow!r}"
+        )
+    if any(not 0 <= index < petals for index in hollow) or len(set(hollow)) != len(hollow):
+        raise StarsError(
+            f"{path}: [{name}] hollow must name distinct petals in 0…{petals - 1}, "
+            f"got {hollow!r}"
+        )
+
+    return VariantStar(
+        radius=full.radius,
+        petal_width=_number(path, name, section, "petal_width"),
+        # ✼ replaces the hub with a ring, so it need not state one; the others do.
+        hub=_number(path, name, section, "hub") if "hub" in section else full.hub,
+        advance=full.advance,
+        center_y=full.center_y,
+        ring=optional("ring"),
+        open_centre=optional("open_centre"),
+        wall=optional("wall"),
+        hollow=tuple(hollow),
+        shear=_number(path, name, section, "shear") if "shear" in section else 0.0,
+    )
+
+
+#: Every ``stars.toml`` table that describes an outline, in file order.
+OUTLINE_TABLES = ("full", "small", *VARIANTS.values())
+
+
 def _validate(path: Path, parameters: Parameters) -> None:
     """Reject parameters that cannot produce a well-formed star."""
     limit = 180.0 / parameters.petals
-    for name, outline in (("full", parameters.full), ("small", parameters.small)):
+    for name in OUTLINE_TABLES:
+        outline = parameters.outline_for(name)
         if outline.radius <= 0:
             raise StarsError(f"{path}: [{name}] radius must be positive")
         if not 0 < outline.petal_width < 0.5:
@@ -329,12 +528,15 @@ def _validate(path: Path, parameters: Parameters) -> None:
         if not 0 < outline.hub < 1:
             raise StarsError(f"{path}: [{name}] hub must be between 0 and 1")
         half_angle = math.degrees(petal_half_angle(outline))
-        if half_angle >= limit:
+        if outline.shear:
+            _validate_shear(path, name, outline, parameters.petals)
+        elif half_angle >= limit:
             raise StarsError(
                 f"{path}: [{name}] petal_width {outline.petal_width} gives a petal "
                 f"half-angle of {half_angle:.1f}°, which is not under the {limit:.0f}° "
                 f"that keeps {parameters.petals} petals from overlapping"
             )
+        _validate_counters(path, name, outline)
     if parameters.small.gap < 0:
         raise StarsError(f"{path}: [small] gap must not be negative")
     if parameters.full.advance <= 0:
@@ -358,6 +560,64 @@ def _validate(path: Path, parameters: Parameters) -> None:
             f"{path}: [italic] stack_slant must be between -45 and 45 degrees, "
             f"got {italic.stack_slant:g}"
         )
+
+
+#: How far a blade may lean before the star stops reading as one (Q8c).
+MAX_SHEAR = 0.6
+
+
+def _validate_shear(path: Path, name: str, outline: Outline, petals: int) -> None:
+    """A sheared blade has to clear the neighbour it leans towards.
+
+    Shearing turns the petal's two straight edges from ``±h`` about its axis into
+    ``atan(shear ± tan h)``, so the blade's leading edge must still fall short of
+    where the next blade's trailing edge begins, ``360/petals`` further round.
+    At ``shear = 0`` that inequality is ``2h < 360/petals`` — the plain
+    half-angle limit — so this is that rule generalised, and it is the only one a
+    sheared variant is held to.
+    """
+    if not 0 <= outline.shear < MAX_SHEAR:
+        raise StarsError(
+            f"{path}: [{name}] shear must be at least 0 and under {MAX_SHEAR:g}, "
+            f"got {outline.shear:g}"
+        )
+    tan_half = math.tan(petal_half_angle(outline))
+    leading = math.degrees(math.atan(outline.shear + tan_half))
+    trailing = 360.0 / petals + math.degrees(math.atan(outline.shear - tan_half))
+    if leading >= trailing:
+        raise StarsError(
+            f"{path}: [{name}] petal_width {outline.petal_width} sheared by "
+            f"{outline.shear:g} makes a blade that spans to {leading:.1f}° and so "
+            f"reaches its neighbour, which starts at {trailing:.1f}°"
+        )
+
+
+def _validate_counters(path: Path, name: str, outline: Outline) -> None:
+    """The two ways a star can be cut into: ✼'s ring and hole, ✾'s hollow petals."""
+    if (outline.ring is None) != (outline.open_centre is None):
+        raise StarsError(
+            f"{path}: [{name}] states only one of ring and open_centre; an open "
+            "centre is a hole plus the ring that keeps the petals joined around it"
+        )
+    if outline.ring is not None and outline.open_centre is not None:
+        if not 0 < outline.open_centre < outline.ring < 1:
+            raise StarsError(
+                f"{path}: [{name}] needs 0 < open_centre < ring < 1, got "
+                f"open_centre {outline.open_centre:g} and ring {outline.ring:g}"
+            )
+    if (outline.wall is None) != (not outline.hollow):
+        raise StarsError(
+            f"{path}: [{name}] states only one of wall and hollow; hollowing a "
+            "petal takes both the petals to hollow and the wall to leave standing"
+        )
+    if outline.wall is not None:
+        wall = outline.wall * outline.radius
+        petal = outline.petal_width * outline.radius
+        if not 0 < wall < petal:
+            raise StarsError(
+                f"{path}: [{name}] wall {wall:.0f} units must be between 0 and the "
+                f"petal's own {petal:.0f}, or there is nothing left to hollow"
+            )
 
 
 def petal_half_angle(outline: Outline) -> float:
@@ -411,35 +671,70 @@ def _arc_spans(
             yield first + (last - first) * i / pieces, first + (last - first) * (i + 1) / pieces
 
 
-def _petal_path(outline: Outline, axis_degrees: float) -> pathops.Path:
-    """One teardrop petal, tip at the origin, its axis at ``axis_degrees``."""
-    w = outline.petal_width * outline.radius
-    distance = outline.radius - w  # centre of the bulb, along the petal axis
+def _extreme_parameters(axis: float, shear: float) -> list[float]:
+    """Bulb-arc parameters at which the finished petal is horizontally or
+    vertically extreme.
+
+    A point of the arc is ``(w cos θ, d + w sin θ)`` in the petal's own frame;
+    the finished outline is that sheared by ``s`` (``x += s·y``) and turned by
+    ``axis``. Setting the derivative of each final coordinate to zero gives
+    ``tan θx = s − tan(axis)`` and ``tan θy = s + cot(axis)``, each with its
+    opposite point half a turn later. Written as :func:`math.atan2` so an axis
+    along a coordinate direction — where a tangent or a cotangent is infinite —
+    needs no special case. With ``s = 0`` these are the four cardinal directions
+    of the final frame, which is what the unsheared stars have always used.
+    """
+    cos_axis, sin_axis = math.cos(axis), math.sin(axis)
+    horizontal = math.atan2(shear * cos_axis - sin_axis, cos_axis)
+    vertical = math.atan2(shear * sin_axis + cos_axis, sin_axis)
+    return [horizontal, horizontal + math.pi, vertical, vertical + math.pi]
+
+
+def _petal_path(
+    outline: Outline, axis_degrees: float, *, inset: float = 0.0
+) -> pathops.Path:
+    """One teardrop petal, tip at the origin, its axis at ``axis_degrees``.
+
+    ``inset`` draws the *counter* of a hollowed petal instead: the same teardrop
+    offset inward by that many units, which is the bulb shrunk by ``inset`` about
+    its own unmoved centre and the tip slid ``inset / sin h`` out along the axis
+    (two lines meeting at half-angle ``h``, offset by ``inset``, meet that far
+    along their bisector). The two edges stay parallel to the petal's own, so the
+    wall between them is ``inset`` thick everywhere — and the counter's
+    half-angle is still ``h``, so it is drawn with exactly the same arithmetic.
+    """
+    radius = outline.drawn_radius
+    w = outline.petal_width * radius
+    distance = radius - w  # centre of the bulb, along the petal axis
     half_angle = petal_half_angle(outline)
+    bulb = w - inset
+    tip = inset / math.sin(half_angle) if inset else 0.0
 
     # The template points up (+y), so the bulb sits at (0, R − w) and the two
-    # tangent lines from the origin touch it half_angle below the horizontal
+    # tangent lines from the tip touch it half_angle below the horizontal
     # through that centre, one either side. The outer arc runs from one tangent
-    # point over the top to the other; rotating the finished petal by
-    # axis − 90° lands it on its axis.
+    # point over the top to the other; shearing the petal in this frame leans it
+    # (❃), and rotating the result by axis − 90° lands it on its axis.
     axis = math.radians(axis_degrees - 90.0)
-    rotation = Transform().rotate(axis)
+    place = Transform().rotate(axis)
+    if outline.shear:
+        place = place.transform((1.0, 0.0, outline.shear, 1.0, 0.0, 0.0))
     start, end = -half_angle, math.pi + half_angle
-    # Split at the apex (the tip direction) and wherever the arc crosses a
-    # cardinal direction of the *final* frame, so every extreme is on-curve.
-    splits = [_QUARTER] + [i * _QUARTER - axis for i in range(4)]
+    # Split at the apex (the tip direction) and wherever the finished outline is
+    # extreme, so every extreme is an on-curve point.
+    splits = [_QUARTER, *_extreme_parameters(axis, outline.shear)]
 
     path = pathops.Path()
     pen = path.getPen()
-    pen.moveTo(rotation.transformPoint((0.0, 0.0)))
+    pen.moveTo(place.transformPoint((0.0, tip)))
     pen.lineTo(
-        rotation.transformPoint((w * math.cos(start), distance + w * math.sin(start)))
+        place.transformPoint((bulb * math.cos(start), distance + bulb * math.sin(start)))
     )
     for first, last in _arc_spans(start, end, splits):
         pen.curveTo(
             *(
-                rotation.transformPoint(point)
-                for point in _arc_cubic((0.0, distance), w, first, last)
+                place.transformPoint(point)
+                for point in _arc_cubic((0.0, distance), bulb, first, last)
             )
         )
     pen.closePath()
@@ -484,34 +779,89 @@ def _disc_path(radius: float, parameters: Parameters, orientation: float) -> pat
     return path
 
 
+def petal_axes(parameters: Parameters, style: str = ROMAN) -> list[float]:
+    """The axis of each petal in degrees, in ``hollow``'s numbering order.
+
+    Petal 0 is the one on the orientation axis — straight up in the roman, turned
+    with the star in the italic — which is why ✾'s hollow petals are indices and
+    not angles.
+    """
+    orientation = orientation_for(parameters, style)
+    step = 360.0 / parameters.petals
+    return [orientation + i * step for i in range(parameters.petals)]
+
+
 def star_path(
     outline: Outline, parameters: Parameters, *, style: str = ROMAN
 ) -> pathops.Path:
-    """The whole star, centred on the origin, as one closed contour.
+    """The whole star, centred on the origin: one contour, plus any counters.
 
     ``pathops.union`` is a ``simplify`` over every contour at once, so this both
     merges the petals with the hub and leaves a path with no self-intersections:
     running ``simplify`` on the result changes nothing (a Step-4 test).
 
+    A star that is cut into — ✼'s round hole, ✾'s three hollow petals — is that
+    union minus the counters, by :func:`pathops.difference`, which returns the
+    outer contour clockwise and every counter counter-clockwise: TrueType's own
+    convention for a hole, and one less thing for the assembly step to fix up.
+
     The style decides only which way the star faces (:func:`orientation_for`);
     every petal is redrawn in the turned frame rather than the roman being
-    rotated after the fact, so extremes stay on-curve at any orientation.
+    rotated after the fact, so extremes stay on-curve at any orientation, and the
+    counters turn with the petals they belong to.
     """
     orientation = orientation_for(parameters, style)
-    step = 360.0 / parameters.petals
-    contours = [
-        _petal_path(outline, orientation + i * step) for i in range(parameters.petals)
-    ]
-    contours.append(_disc_path(outline.hub * outline.radius, parameters, orientation))
+    radius = outline.drawn_radius
+    axes = petal_axes(parameters, style)
+    contours = [_petal_path(outline, axis) for axis in axes]
+    # ✼ has no hub to speak of: the ring is what joins its petals around the hole.
+    joining = outline.hub if outline.ring is None else outline.ring
+    contours.append(_disc_path(joining * radius, parameters, orientation))
 
-    path = pathops.Path()
+    solid = pathops.Path()
     # clockwise=True: TrueType fills clockwise outer contours, as Literata's own
     # glyphs do (its `asterisk` has negative signed area).
-    pathops.union(contours, path.getPen(), fix_winding=True, clockwise=True)
-    if len(list(path.contours)) != 1:
+    pathops.union(contours, solid.getPen(), fix_winding=True, clockwise=True)
+    left = len(list(solid.contours))
+    if left != 1:
+        if outline.ring is None:
+            raise StarsError(
+                f"the union of {parameters.petals} petals and the hub left "
+                f"{left} contours; the hub is too small to join them"
+            )
         raise StarsError(
-            f"the union of {parameters.petals} petals and the hub left "
-            f"{len(list(path.contours))} contours; the hub is too small to join them"
+            f"the union of {parameters.petals} petals and the ring left {left} "
+            f"contours; the ring does not join the petals"
+        )
+
+    counters: list[pathops.Path] = []
+    if outline.open_centre is not None:
+        counters.append(_disc_path(outline.open_centre * radius, parameters, orientation))
+    if outline.wall is not None:
+        counters.extend(
+            _petal_path(outline, axes[index], inset=outline.wall * radius)
+            for index in outline.hollow
+        )
+    if not counters:
+        return solid
+
+    path = pathops.Path()
+    pathops.difference([solid], counters, path.getPen(), fix_winding=True, clockwise=True)
+    expected = 1 + len(counters)
+    left = len(list(path.contours))
+    if left != expected:
+        if outline.open_centre is not None and left > expected:
+            # The petals meet at the centre, so what holds them together once the
+            # centre is cut away is the ring around the hole: too small a ring
+            # and ✼ falls into six loose teardrops.
+            raise StarsError(
+                f"cutting a {outline.open_centre:g}·R hole out of the star left "
+                f"{left} contours, not {expected}; the ring does not join the petals"
+            )
+        raise StarsError(
+            f"cutting {len(counters)} counter(s) out of the star left {left} "
+            f"contours, not {expected}: the counters run into each other or into "
+            "the star's own edge"
         )
     return path
 
@@ -600,19 +950,24 @@ def leaned(
 
 
 def build_glyphs(parameters: Parameters, style: str = ROMAN) -> dict[str, StarGlyph]:
-    """The five glyphs of the star family, in glyph-order, for one style.
+    """The nine glyphs of the star family, in glyph-order, for one style.
 
-    The two *outlines* — ``star.small`` and ``uni273D`` — are the same template
-    in both styles, but not the same drawing: in the italic it is turned by
-    ``[italic] rotation`` (D21), so a petal points up-left and up-right instead
-    of straight up. The roman is exactly what it has always been.
+    The six *outlines* — ``star.small``, ✽ and its four siblings — are the same
+    template in both styles, but not the same drawing: in the italic it is turned
+    by ``[italic] rotation`` (D21), so a petal points up-left and up-right
+    instead of straight up. The roman is exactly what it has always been.
+
+    ✻ ✼ ✾ ❃ are placed exactly as ✽ is — its advance, its centre — so the five
+    set as one family (D24); what differs between them is only the shape
+    :func:`star_path` draws. ✾'s hollow petals are indices into
+    :func:`petal_axes`, so they turn with the star rather than staying put.
 
     Placement changes in two ways with the style. Every composite takes the
     style's own asterisk/asterism advance from Literata, which moves the shared
     component inside it; and in the italic the *stacks* ⁑ and ⁂ additionally lean
     (:func:`leaned`) — ⁑'s two stars ±9 units about their midpoint, ⁂'s top star
-    16 units right of its pair. ⁎ and ✽ are single stars: they turn, they never
-    lean. Composites stay translation-only either way (D9).
+    16 units right of its pair. ⁎ ✽ ✻ ✼ ✾ ❃ are single stars: they turn, they
+    never lean. Composites stay translation-only either way (D9).
     """
     if style not in STYLES:
         raise StarsError(f"unknown style {style!r}; expected one of {', '.join(STYLES)}")
@@ -629,11 +984,17 @@ def build_glyphs(parameters: Parameters, style: str = ROMAN) -> dict[str, StarGl
         (small.radius, small.radius),
     )
     full = parameters.full
-    full_glyph = outline_glyph(
-        star_path(full, parameters, style=style),
-        parameters,
-        (full.advance / 2.0, full.center_y),
-    )
+    # ✽ and its four siblings share one placement: centred on the advance, on the
+    # cap-height midpoint. Each is a different drawing at the very same spot.
+    at_full_size = (full.advance / 2.0, full.center_y)
+    full_size_glyphs = {
+        name: outline_glyph(
+            star_path(parameters.outline_for(table), parameters, style=style),
+            parameters,
+            at_full_size,
+        )
+        for name, table in ((FULL, "full"), *VARIANTS.items())
+    }
 
     glyf: dict[str, Glyph] = {SMALL: small_glyph}
     centre = (small.radius, small.radius)
@@ -677,7 +1038,10 @@ def build_glyphs(parameters: Parameters, style: str = ROMAN) -> dict[str, StarGl
     ]
     built: dict[str, StarGlyph] = {
         SMALL: _star_glyph(SMALL, small_glyph, small_advance),
-        FULL: _star_glyph(FULL, full_glyph, full.advance),
+        **{
+            name: _star_glyph(name, glyph, full.advance)
+            for name, glyph in full_size_glyphs.items()
+        },
     }
     for name, advance, translations in plans:
         glyph = composite_glyph(SMALL, translations, glyf)
@@ -814,19 +1178,81 @@ def literata_cells(
     return cells
 
 
+class _ScaledDrawable:
+    """One glyph drawn through a uniform scale, for the DejaVu comparison cells."""
+
+    def __init__(self, drawable: Drawable, scale: float) -> None:
+        self._drawable = drawable
+        self._scale = scale
+
+    def draw(self, pen: object) -> None:
+        self._drawable.draw(TransformPen(pen, Transform().scale(self._scale)))
+
+
+def dejavu_cells(
+    root: Path, names: Sequence[tuple[str, str, str]] = DEJAVU_COMPARISON_GLYPHS
+) -> list[Cell]:
+    """Comparison cells read from the pinned DejaVu Sans, at the import scale.
+
+    The five dingbats of this Unicode family as DejaVu draws them, through the
+    same ``k = 700/1493`` the importer uses (D6) — which is what four of them
+    looked like in the shipped fonts until D24 replaced them. Shown in both rows:
+    an import is one outline, so the italic carried these too.
+    """
+    path = dejavu_path(root)
+    font = TTFont(path, lazy=True)
+    glyph_set = font.getGlyphSet()
+    metrics = font["hmtx"].metrics
+    glyf = font["glyf"]
+    cells = []
+    for name, label, detail in names:
+        if name not in glyph_set:
+            raise StarsError(f"{path} has no glyph {name!r}")
+        glyph = glyf[name]  # expands the glyph; its bounds come from the file
+        bounds = (
+            tuple(
+                otRound(value * DEJAVU_SCALE)
+                for value in (glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax)
+            )
+            if glyph.numberOfContours
+            else (0, 0, 0, 0)
+        )
+        cells.append(
+            Cell(
+                label=label,
+                detail=detail,
+                advance=otRound(metrics[name][0] * DEJAVU_SCALE),
+                bounds=bounds,
+                draw=_ScaledDrawable(glyph_set[name], DEJAVU_SCALE).draw,
+                glyph_set=glyph_set,
+            )
+        )
+    return cells
+
+
 def literata_path(root: Path, *, style: str = ROMAN) -> Path:
     """Path of the pinned Literata VF of one style inside ``build/upstream``."""
     if style not in LITERATA_MEMBERS:
         raise StarsError(f"unknown style {style!r}; expected one of {', '.join(STYLES)}")
-    member = LITERATA_MEMBERS[style]
+    return _pinned_member(root, "literata", LITERATA_MEMBERS[style])
+
+
+def dejavu_path(root: Path) -> Path:
+    """Path of the pinned DejaVu Sans inside ``build/upstream``."""
+    return _pinned_member(root, "dejavu", DEJAVU_MEMBER)
+
+
+def _pinned_member(root: Path, key: str, member: str) -> Path:
+    """Locate one pinned archive member by basename, keeping the version in
+    ``sources/upstream.toml`` and out of this module."""
     pins = {pin.key: pin for pin in upstream.load_pins(upstream.pin_file_for(root))}
-    pin = pins.get("literata")
+    pin = pins.get(key)
     if pin is None:
-        raise StarsError("sources/upstream.toml has no [literata] section")
+        raise StarsError(f"sources/upstream.toml has no [{key}] section")
     matches = [m for m in pin.members if m.rsplit("/", 1)[-1] == member]
     if len(matches) != 1:
         raise StarsError(
-            f"sources/upstream.toml [literata.members] must pin exactly one "
+            f"sources/upstream.toml [{key}.members] must pin exactly one "
             f"{member}; found {len(matches)}"
         )
     path = pin.extract_dir(upstream.upstream_dir_for(root)) / matches[0]
@@ -866,13 +1292,16 @@ def render_svg(
     *,
     parameters: Parameters | None = None,
 ) -> str:
-    """The review artifact: one row per style, each beside its own Literata marks.
+    """The review artifact: one row per style, each beside its own comparisons.
 
     Per style, a row of outlines at a common em size with each glyph's advance,
     baseline, cap height and bounding box drawn in, then the same run set as text
     at 34 px and 17 px — the sizes at which the small star's optical correction
-    either works or does not. The roman comes first, so reading down a column is
-    exactly what the italic's turn and lean do (D21).
+    either works or does not, and at which ✼'s hole and ✾'s hollows either read
+    or fill in. The roman comes first, so reading down a column is exactly what
+    the italic's turn and lean do (D21); reading along a row past the nine glyphs
+    reaches Literata's own marks and DejaVu's ✻ ✼ ✽ ✾ ❃, which is what the four
+    new drawings replaced (D24).
     """
     comparisons_by_style = comparisons_by_style or {}
     scale = SVG_EM / 1000.0
@@ -895,7 +1324,7 @@ def render_svg(
     height = y - 26.0 + margin
     header = (
         f'<text class="title" x="{margin:.1f}" y="{margin + 22:.1f}">'
-        "Asterwell Text — six-petal star family</text>"
+        "Asterwell Text — six-petal star family (✽ ✻ ✼ ✾ ❃ ⁎ ⁑ ⁂)</text>"
         f'<text class="meta" x="{margin:.1f}" y="{margin + 40:.1f}">'
         "grey box: advance × (descender…ascender) · dashed: glyph bbox · "
         "rules: baseline and cap height (700)</text>"
@@ -1031,11 +1460,15 @@ def _report(style: str, glyphs: Mapping[str, StarGlyph], log: Log) -> None:
     log(f"{style}:")
     for star in glyphs.values():
         char = chr(star.codepoint) if star.codepoint is not None else " "
+        contours = star.glyph.numberOfContours
+        counters = (
+            f" ({contours - 1} counter{'' if contours == 2 else 's'})" if contours > 1 else ""
+        )
         shape = (
             f"composite ×{len(star.components)} of {star.components[0]}"
             if star.is_composite
             else f"outline, {len(star.glyph.coordinates)} points, "
-            f"{star.glyph.numberOfContours} contour"
+            f"{contours} contour{'' if contours == 1 else 's'}{counters}"
         )
         x_min, y_min, x_max, y_max = star.bounds
         log(
@@ -1061,8 +1494,11 @@ def build(
         _report(style, glyphs, log)
 
     if svg is not None:
+        # Every row ends with its own style's Literata marks and then DejaVu's
+        # five — the same five glyphs, as they were imported before D24.
+        imported = dejavu_cells(root)
         comparisons = {
-            style: literata_cells(root, style=style) for style in per_style
+            style: [*literata_cells(root, style=style), *imported] for style in per_style
         }
         text = render_svg(per_style, comparisons, parameters=parameters)
         svg.parent.mkdir(parents=True, exist_ok=True)
@@ -1078,7 +1514,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         type=Path,
         metavar="PATH",
         help=(
-            "render the star family beside Literata's * ◆ ⁂ to this SVG file "
+            "render the star family beside Literata's * ◆ ⁂ and DejaVu's "
+            "✻ ✼ ✽ ✾ ❃ to this SVG file "
             "(needs the pinned upstream fonts: `mise run fetch`)"
         ),
     )
