@@ -138,7 +138,7 @@ changed." at the start of a line, the minor is exactly three digits
 (0.001, 0.010, 0.999), and the version it names becomes the tag, the
 zip and the version inside the fonts. See README, "Releasing".
 
-Nothing has been released yet.
+0.001 (2026-09-07): initial release.
 
 
 Acknowledgements
