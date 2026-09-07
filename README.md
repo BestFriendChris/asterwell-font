@@ -52,20 +52,40 @@ Built fonts are not committed to this repository — they are published as
 assets on the
 [Releases page](https://github.com/BestFriendChris/asterwell-font/releases).
 The first release is `v1.000`; until it is tagged, build the fonts
-locally with the steps below.
+locally with the steps below. `mise run package` produces exactly the
+assets a release carries, byte for byte, so a local build is not a
+second-best copy of one.
 
 Each release carries:
 
 | Asset | What it is |
 | --- | --- |
-| `AsterwellText-<version>.zip` | everything: variable fonts, statics, WOFF2, specimen, license and provenance files, `allowlist.tsv`, `BUILD-INFO.json` |
+| `AsterwellText-<version>.zip` | everything: the two variable fonts, the sixteen statics, the two WOFF2s, the specimen, the two fontbakery reports, the license and provenance files, `allowlist.tsv` and `BUILD-INFO.json` |
 | `AsterwellText[opsz,wght].ttf`, `AsterwellText-Italic[opsz,wght].ttf` | the two variable fonts, for installing directly |
 | `AsterwellText[opsz,wght].woff2`, `AsterwellText-Italic[opsz,wght].woff2` | the same two fonts for the web |
-| `SHA256SUMS.txt` | checksums for every shipped file |
+| `SHA256SUMS.txt` | checksums for every shipped file, the zip included |
 | `OFL.txt`, `DEJAVU-LICENSE.txt` | the licenses, also inside the zip |
 
-Verify a download with `sha256sum -c SHA256SUMS.txt` from the directory
-you unpacked it into.
+The release notes quote the checksums of the zip and of the four font
+assets, so verifying a single download is `sha256sum
+AsterwellText-<version>.zip` compared against the notes.
+
+`SHA256SUMS.txt` covers every file, with paths relative to a build's
+`fonts/` directory — which is also the layout inside the zip, except that
+the licenses and the other documents sit at the zip's root and appear
+here as `../` entries:
+
+```sh
+cd fonts && sha256sum -c dist/SHA256SUMS.txt   # a local build: every entry
+sha256sum -c --ignore-missing SHA256SUMS.txt   # an unpacked zip: the fonts, the
+                                               # specimen, the reports and
+                                               # BUILD-INFO.json
+```
+
+`qa/fontbakery-variable.md` and `qa/fontbakery-static.md` inside the zip
+are [fontbakery](https://github.com/fonttools/fontbakery)'s own report on
+the exact files shipped beside them — the release's checks, not a claim
+about them.
 
 ## Using the fonts
 

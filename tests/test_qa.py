@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 from collections.abc import Iterator
 from io import BytesIO
 from pathlib import Path
@@ -1026,6 +1027,21 @@ def test_the_fontbakery_command_only_asks_for_workers_when_told_to(
         jobs=4,
     )
     assert command[command.index("--jobs") + 1] == "4"
+
+
+def test_the_fontbakery_environment_is_seeded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unseeded, fontbakery orders its own messages differently on every run
+    (``interpolation_issues`` iterates a set), and the reports it writes differ
+    byte for byte between two runs over identical fonts. The release ships
+    those reports, so the seed is what keeps the zip reproducible."""
+    monkeypatch.setenv("ASTERWELL_TEST_MARKER", "kept")
+    monkeypatch.delenv("PYTHONHASHSEED", raising=False)
+    env = qa.fontbakery_env()
+    assert env["PYTHONHASHSEED"] == "0"
+    # Seeded, not replaced: the subprocess still needs PATH, the virtualenv and
+    # everything else the parent runs with.
+    assert env["ASTERWELL_TEST_MARKER"] == "kept"
+    assert os.environ.get("PYTHONHASHSEED") is None, "the parent's env is untouched"
 
 
 def test_the_shipped_exclusions_are_the_four_documented_ones(repo_root: Path) -> None:

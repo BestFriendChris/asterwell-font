@@ -39,7 +39,10 @@ there.
 
 *fontbakery.* ``check-universal`` over the built fonts, once per file class,
 with the four documented exclusions in ``qa/fontbakery.yml``. Any FAIL or ERROR
-outside those fails the command.
+outside those fails the command. The invocation is seeded
+(``PYTHONHASHSEED=0``, see :func:`fontbakery_env`) so that the reports it
+writes into ``fonts/qa`` are byte-stable across runs and can travel in the
+release zip.
 
 Running the variable fonts and the statics as **two** invocations is not a
 convenience: four of fontbakery's family-wide checks (``family/single_directory``,
@@ -55,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -1046,6 +1050,18 @@ def fontbakery_command(
     return command + [str(path) for path in paths]
 
 
+def fontbakery_env() -> dict[str, str]:
+    """The environment one invocation runs in: ours, plus ``PYTHONHASHSEED=0``.
+
+    Without the seed fontbakery's own message ordering is non-deterministic —
+    ``interpolation_issues`` iterates a set and so reports a different *sample*
+    of its findings each run — and two runs over identical fonts write reports
+    that differ byte for byte. Seeded, they are byte-stable, which is what lets
+    the release ship them (:mod:`asterwell_build.package`).
+    """
+    return {**os.environ, "PYTHONHASHSEED": "0"}
+
+
 def check_id(check: Mapping[str, object]) -> str:
     """The check id out of a JSON report entry (``<FontBakeryCheck:id>``)."""
     key = check.get("key")
@@ -1110,7 +1126,13 @@ def run_fontbakery(
             config=config, paths=paths, report_stem=stem, jobs=jobs
         )
         log(f"  fontbakery {FONTBAKERY_PROFILE} over {len(paths)} {group} font(s)…")
-        completed = subprocess.run(command, capture_output=True, text=True, cwd=root)
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=root,
+            env=fontbakery_env(),
+        )
         report = stem.with_suffix(".json")
         if not report.is_file():
             raise QaError(
