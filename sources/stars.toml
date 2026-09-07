@@ -19,3 +19,12 @@ radius        = 180      # diameter 360 ≈ Literata's `*` height (375)
 petal_width   = 0.26     # heavier petals than `full` — optical compensation, not a scaled copy
 hub           = 0.14
 gap           = 54       # edge-to-edge gap between stars in ⁑ and ⁂ (center distance = 2·radius + gap = 414)
+
+[italic]                 # what the italic changes about the stars; everything else is shared with the roman
+rotation   = 30          # degrees the template turns in the italic: petals at 60° and 120° (up-right, up-left)
+                         # instead of one straight up. 30 and -30 give the same star; 60 would change nothing.
+stack_slant = 2.5        # degrees the stacked stars of ⁑ and ⁂ lean, tops to the right. Each star in a stack
+                         # moves horizontally by (its centre height − the stack's mean centre height) · tan(stack_slant):
+                         # ⁑'s two stars ±9 units, ⁂'s top star +16 over its pair — the same 16 Literata Italic's
+                         # own ⁂ uses; its colon leans 2.49°, its semicolon 3.30°. Outlines are never sheared;
+                         # single stars (⁎ ✽) do not lean.

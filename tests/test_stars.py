@@ -1,11 +1,20 @@
 """The six-petal star family: symmetry, cleanliness and the shipped envelopes.
 
+Every property here is checked in **both styles**, because the two no longer
+share one drawing: D21 turns the template 30° in the italic and leans the
+stacked stars of ⁑ and ⁂ by 2.5°. The pair of tests that pins that relationship
+down is :func:`test_the_italic_stars_are_the_roman_turned` (the italic outline
+is the roman rotated about its own centre, to within rounding noise — never
+sheared) and :func:`test_the_italic_stacks_lean_and_the_single_stars_do_not`
+(the lean is a displacement of whole stars, by the mean-height rule).
+
 Hermetic — everything here comes from ``sources/stars.toml`` and the geometry in
 :mod:`asterwell_build.stars`; nothing reads ``build/upstream`` or a built font.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import math
 import xml.etree.ElementTree as ElementTree
@@ -26,32 +35,42 @@ CUBIC_FLAG = 0x80
 #: tolerance is 1 unit, so every geometric identity below holds to well under it.
 TOLERANCE = 1.0
 
-#: What the family ships, per §7.3. Bounding boxes are ``(xMin, yMin, xMax,
-#: yMax)`` of the rounded outline, which is what ``glyf`` stores and ``qa``
-#: reads back. The widths are 89.6% of the heights because a six-fold star's
-#: width and height are extents 30° apart — see the module docstring.
+#: What the family ships, per §7.3 (roman) and §15.1.4 (italic). Bounding boxes
+#: are ``(xMin, yMin, xMax, yMax)`` of the rounded outline, which is what ``glyf``
+#: stores and ``qa`` reads back. One dimension is 89.6% of the other because a
+#: six-fold star's width and height are extents 30° apart — see the module
+#: docstring. The italic turns the template 30°, which swaps those two: the
+#: italic star is wider than tall, which is why ✽'s side bearings drop from 80
+#: to 43 on an unchanged advance. The **roman rows are exactly what Step 4
+#: shipped** — this revision must not move them by a unit.
 EXPECTED: Mapping[str, Mapping[str, tuple[int, tuple[int, int, int, int]]]] = {
     "star.small": {
         "roman": (360, (18, 0, 342, 360)),
-        "italic": (360, (18, 0, 342, 360)),
+        "italic": (360, (0, 18, 360, 342)),
     },
     "uni273D": {
         "roman": (805, (80, -10, 725, 710)),
-        "italic": (805, (80, -10, 725, 710)),
+        "italic": (805, (43, 28, 763, 672)),
     },
     "uni204E": {
         "roman": (449, (63, 414, 387, 774)),
-        "italic": (475, (76, 414, 400, 774)),
+        "italic": (475, (58, 432, 418, 756)),
     },
     "uni2051": {
         "roman": (449, (63, 0, 387, 774)),
-        "italic": (475, (76, 0, 400, 774)),
+        "italic": (475, (48, 18, 427, 756)),
     },
     "uni2042": {
         "roman": (889, (76, 0, 814, 719)),
-        "italic": (915, (89, 0, 827, 719)),
+        "italic": (915, (65, 18, 839, 701)),
     },
 }
+
+#: Lean the italic's stacks are expected to show, as the x-difference between
+#: two of their stars (§14.7, §15.1.4). ⁑: top minus bottom, 414 units apart.
+#: ⁂: top minus the midpoint of its pair, 358.5 units apart — the same +16
+#: Literata Italic's own ⁂ uses.
+STACK_LEAN = {"uni2051": 19, "uni2042": 16}
 
 
 @pytest.fixture(scope="session")
@@ -64,9 +83,48 @@ def glyphs(parameters: stars.Parameters) -> Mapping[str, Mapping[str, stars.Star
     return {style: stars.build_glyphs(parameters, style) for style in stars.STYLES}
 
 
-def centred_glyph(outline: stars.Outline, parameters: stars.Parameters):
-    """The template itself: the star as built, centred on the origin."""
-    return stars.outline_glyph(stars.star_path(outline, parameters), parameters, (0.0, 0.0))
+def centred_glyph(
+    outline: stars.Outline, parameters: stars.Parameters, style: str = "roman"
+):
+    """The template itself: the star as built for a style, centred on the origin."""
+    return stars.outline_glyph(
+        stars.star_path(outline, parameters, style=style), parameters, (0.0, 0.0)
+    )
+
+
+def about_its_centre(star: stars.StarGlyph) -> pathops.Path:
+    """A built glyph's outline moved so its bounding box is centred on the origin.
+
+    What the roman/italic comparison needs: the two stars sit at different
+    places in different advances, and the claim under test is about their
+    *shapes*.
+    """
+    x_min, y_min, x_max, y_max = star.bounds
+    return outline_path(star.glyph).transform(
+        1.0, 0.0, 0.0, 1.0, -(x_min + x_max) / 2.0, -(y_min + y_max) / 2.0
+    )
+
+
+def half_extent(
+    outline: stars.Outline, parameters: stars.Parameters, style: str, direction: float
+) -> float:
+    """How far the centred template reaches in ``direction`` degrees.
+
+    A six-fold star repeats every ``360/petals``, so only two extents exist:
+    ``R`` along a petal axis, and ``(R − w)·cos(30°) + w`` in the valley halfway
+    between two of them. Which one is the width and which the height is exactly
+    what the italic's turn swaps over.
+    """
+    w = outline.petal_width * outline.radius
+    step = 360.0 / parameters.petals
+    across = (outline.radius - w) * math.cos(math.radians(step / 2.0)) + w
+    off = abs(math.remainder(direction - stars.orientation_for(parameters, style), step))
+    if off < 1e-9:
+        return outline.radius
+    assert off == pytest.approx(step / 2.0, abs=1e-9), (
+        f"{direction}° is neither a petal axis nor a valley of this orientation"
+    )
+    return across
 
 
 def points(glyph) -> list[tuple[int, int]]:
@@ -142,6 +200,16 @@ def test_the_checked_in_parameters_are_the_design_s(parameters: stars.Parameters
     assert parameters.small.hub > parameters.full.hub
     assert parameters.small.separation == 414  # 2·180 + 54, the ⁑/⁂ centre distance
 
+    # D21: the italic turns the template a half-petal — 30° on a six-fold star,
+    # so petals point up-left and up-right and none straight up — and leans the
+    # stacked stars of ⁑ and ⁂ by the house 2.5°, which is where Literata
+    # Italic's own colon (2.49°) and asterism (2.25°) sit.
+    assert parameters.italic.rotation == 30
+    assert parameters.italic.stack_slant == 2.5
+    assert parameters.italic.lean == pytest.approx(math.tan(math.radians(2.5)))
+    assert stars.orientation_for(parameters, "roman") == parameters.orientation
+    assert stars.orientation_for(parameters, "italic") == parameters.orientation + 30
+
 
 def test_the_petal_half_angles_keep_neighbours_apart(parameters: stars.Parameters) -> None:
     # asin(w/(R−w)) must stay under 360/(2·petals) or adjacent petals would fuse
@@ -162,24 +230,55 @@ def test_impossible_parameters_are_rejected(tmp_path: Path) -> None:
         "advance = 805\ncenter_y = 350\n"
     )
     small = "[small]\nradius = 180\npetal_width = 0.26\nhub = 0.14\ngap = 54\n"
+    italic = "[italic]\nrotation = 30\nstack_slant = 2.5\n"
 
-    path.write_text(template + full + small, encoding="utf-8")
+    path.write_text(template + full + small + italic, encoding="utf-8")
     assert stars.load_parameters(path).petals == 6
 
     path.write_text(
-        template + full + small.replace("0.26", "0.45"), encoding="utf-8"
+        template + full + small.replace("0.26", "0.45") + italic, encoding="utf-8"
     )
     with pytest.raises(stars.StarsError, match="half-angle"):
         stars.load_parameters(path)
 
-    path.write_text(template + full, encoding="utf-8")
+    path.write_text(template + full + italic, encoding="utf-8")
     with pytest.raises(stars.StarsError, match=r"missing \[small\]"):
         stars.load_parameters(path)
 
     path.write_text(
-        template + full + small.replace("gap = 54", 'gap = "wide"'), encoding="utf-8"
+        template + full + small.replace("gap = 54", 'gap = "wide"') + italic,
+        encoding="utf-8",
     )
     with pytest.raises(stars.StarsError, match="gap must be a number"):
+        stars.load_parameters(path)
+
+    # The italic treatment is not optional: without it there is no answer to
+    # what the italic stars do, and silently falling back to the roman is the
+    # bug D21 exists to undo.
+    path.write_text(template + full + small, encoding="utf-8")
+    with pytest.raises(stars.StarsError, match=r"missing \[italic\]"):
+        stars.load_parameters(path)
+
+    # A turn by a whole petal is no turn at all on a six-fold star.
+    for degrees in ("60", "0", "-120"):
+        path.write_text(
+            template + full + small + italic.replace("rotation = 30", f"rotation = {degrees}"),
+            encoding="utf-8",
+        )
+        with pytest.raises(stars.StarsError, match="onto itself"):
+            stars.load_parameters(path)
+
+    path.write_text(
+        template + full + small + italic.replace("2.5", "60"), encoding="utf-8"
+    )
+    with pytest.raises(stars.StarsError, match="stack_slant must be between"):
+        stars.load_parameters(path)
+
+    path.write_text(
+        template + full + small + italic.replace("rotation = 30", 'rotation = "a bit"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(stars.StarsError, match="rotation must be a number"):
         stars.load_parameters(path)
 
     path.write_text("petals = ", encoding="utf-8")
@@ -195,35 +294,43 @@ def test_impossible_parameters_are_rejected(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
-def test_the_template_is_six_fold_symmetric(size: str, parameters: stars.Parameters) -> None:
+def test_the_template_is_six_fold_symmetric(
+    size: str, style: str, parameters: stars.Parameters
+) -> None:
     """Turn the star a sixth of a turn and it lands on itself.
 
     Measured as area, not as points: the petal arcs are split at their extremes,
     which fall in different places within each petal, so the six petals are the
-    same *shape* without being the same *point sequence*.
+    same *shape* without being the same *point sequence*. True of the italic's
+    turned template too — the hub's splits turn with it, so its six valleys stay
+    identical to each other.
     """
     outline = getattr(parameters, size)
     step = 360.0 / parameters.petals
 
-    built = stars.star_path(outline, parameters)
+    built = stars.star_path(outline, parameters, style=style)
     # The construction itself, before anything is rounded: symmetric to within
     # skia's own arithmetic (a misplaced petal would differ by ~15% of the area).
     assert difference_area(built, rotated(built, step)) < 0.001 * abs(built.area)
 
     # And the shipped, integer-rounded outline, where rounding is free to move
     # the boundary by half a unit all the way round the perimeter.
-    glyph = outline_path(centred_glyph(outline, parameters))
+    glyph = outline_path(centred_glyph(outline, parameters, style))
     assert difference_area(glyph, rotated(glyph, step)) < 0.02 * abs(glyph.area)
     # Half a turn and the mirror take integers to integers, so those are exact.
     assert difference_area(glyph, rotated(glyph, 180.0)) == 0.0
     assert difference_area(glyph, mirrored(glyph)) == 0.0
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
-def test_the_template_is_centred_on_the_origin(size: str, parameters: stars.Parameters) -> None:
+def test_the_template_is_centred_on_the_origin(
+    size: str, style: str, parameters: stars.Parameters
+) -> None:
     outline = getattr(parameters, size)
-    glyph = centred_glyph(outline, parameters)
+    glyph = centred_glyph(outline, parameters, style)
     coordinates = points(glyph)
 
     centroid = (
@@ -235,40 +342,61 @@ def test_the_template_is_centred_on_the_origin(size: str, parameters: stars.Para
 
     # The bounding box is centred on the origin too — the property the "square
     # bbox" shorthand was after. It is not square: a shape that repeats every
-    # 60° has its width and height 30° apart, so with a petal pointing up the
-    # height is 2R (tip to tip) and the width is 2·((R−w)·cos30° + w).
-    step = 360.0 / parameters.petals
-    w = outline.petal_width * outline.radius
-    half_width = (outline.radius - w) * math.cos(math.radians(step / 2.0)) + w
-    assert glyph.yMax == pytest.approx(outline.radius, abs=TOLERANCE)
-    assert glyph.yMin == pytest.approx(-outline.radius, abs=TOLERANCE)
+    # 60° has its extents 30° apart, so along a petal axis the half-extent is R
+    # and in the valley between two petals it is (R−w)·cos30° + w. Which of the
+    # two is the height is decided by the orientation: with the roman's 90 a
+    # petal points up and the star is taller than wide; the italic's 120 turns
+    # that a half-petal and the star comes out wider than tall.
+    half_width = half_extent(outline, parameters, style, 0.0)
+    half_height = half_extent(outline, parameters, style, 90.0)
+    # Halfway between two petal axes, whichever way the style faces.
+    valley = half_extent(
+        outline,
+        parameters,
+        style,
+        stars.orientation_for(parameters, style) + 180.0 / parameters.petals,
+    )
+    assert sorted((half_width, half_height)) == pytest.approx(
+        sorted((outline.radius, valley))
+    ), "the two extents are R and the valley half-width, in one order or the other"
+    assert (half_width > half_height) == (style == "italic")
+
+    assert glyph.yMax == pytest.approx(half_height, abs=TOLERANCE)
+    assert glyph.yMin == pytest.approx(-half_height, abs=TOLERANCE)
     assert glyph.xMax == pytest.approx(half_width, abs=TOLERANCE)
     assert glyph.xMin == pytest.approx(-half_width, abs=TOLERANCE)
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
-def test_the_union_leaves_one_contour(size: str, parameters: stars.Parameters) -> None:
-    path = stars.star_path(getattr(parameters, size), parameters)
+def test_the_union_leaves_one_contour(
+    size: str, style: str, parameters: stars.Parameters
+) -> None:
+    path = stars.star_path(getattr(parameters, size), parameters, style=style)
     assert len(list(path.contours)) == 1
     assert path.clockwise, "TrueType fills clockwise outer contours"
-    assert centred_glyph(getattr(parameters, size), parameters).numberOfContours == 1
+    assert centred_glyph(getattr(parameters, size), parameters, style).numberOfContours == 1
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
 def test_the_union_leaves_no_overlapping_segments(
-    size: str, parameters: stars.Parameters
+    size: str, style: str, parameters: stars.Parameters
 ) -> None:
     """A second pass over an already-clean path has nothing left to do."""
-    path = stars.star_path(getattr(parameters, size), parameters)
+    path = stars.star_path(getattr(parameters, size), parameters, style=style)
     again = pathops.simplify(path, fix_winding=True, keep_starting_points=True, clockwise=True)
     assert segments(again) == segments(path)
     assert again.area == path.area
     assert difference_area(again, path) == 0.0
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
-def test_the_outline_is_quadratic_only(size: str, parameters: stars.Parameters) -> None:
-    glyph = centred_glyph(getattr(parameters, size), parameters)
+def test_the_outline_is_quadratic_only(
+    size: str, style: str, parameters: stars.Parameters
+) -> None:
+    glyph = centred_glyph(getattr(parameters, size), parameters, style)
     assert not any(flag & CUBIC_FLAG for flag in glyph.flags), "a cubic survived cu2qu"
 
     pen = RecordingPen()
@@ -278,10 +406,18 @@ def test_the_outline_is_quadratic_only(size: str, parameters: stars.Parameters) 
     assert operations == {"moveTo", "lineTo", "qCurveTo", "closePath"}
 
 
+@pytest.mark.parametrize("style", stars.STYLES)
 @pytest.mark.parametrize("size", ["full", "small"])
-def test_the_extremes_are_on_curve_points(size: str, parameters: stars.Parameters) -> None:
-    """So the ``glyf`` box, which fontTools takes over control points too, is tight."""
-    glyph = centred_glyph(getattr(parameters, size), parameters)
+def test_the_extremes_are_on_curve_points(
+    size: str, style: str, parameters: stars.Parameters
+) -> None:
+    """So the ``glyf`` box, which fontTools takes over control points too, is tight.
+
+    The petal arcs are split at the cardinal directions of the *final* frame, so
+    this holds at the italic's orientation as much as at the roman's — the point
+    of splitting there rather than in the petal's own frame.
+    """
+    glyph = centred_glyph(getattr(parameters, size), parameters, style)
     on_curve = [
         point for point, flag in zip(points(glyph), glyph.flags, strict=True) if flag & 1
     ]
@@ -289,6 +425,36 @@ def test_the_extremes_are_on_curve_points(size: str, parameters: stars.Parameter
     assert max(x for x, _ in on_curve) == glyph.xMax
     assert min(y for _, y in on_curve) == glyph.yMin
     assert max(y for _, y in on_curve) == glyph.yMax
+
+
+@pytest.mark.parametrize("size", ["full", "small"])
+def test_turning_by_a_whole_petal_is_no_turn_at_all(
+    size: str, parameters: stars.Parameters
+) -> None:
+    """Which way the italic turns does not matter: ±30° is one and the same star.
+
+    A six-fold shape repeats every 60°, so every rotation in ``30 + k·60`` gives
+    the same drawing — not merely the same shape, but the same points in the same
+    order, because the construction turns the frame the petals and the hub splits
+    are keyed to. That is what makes "petals up-left and up-right" a complete
+    instruction, and why ``rotation`` may as well be written 30 as −30.
+    """
+    step = 360.0 / parameters.petals
+    rotation = parameters.italic.rotation
+
+    def drawn(degrees: float):
+        turned = dataclasses.replace(
+            parameters,
+            italic=dataclasses.replace(parameters.italic, rotation=degrees),
+        )
+        glyph = centred_glyph(getattr(turned, size), turned, "italic")
+        return points(glyph), list(glyph.flags)
+
+    base = drawn(rotation)
+    for multiple in (-3, -2, -1, 1, 2, 3):
+        assert drawn(rotation + multiple * step) == base
+    assert drawn(-rotation) == base  # −30 is 30 − 60
+    assert drawn(rotation + step / 2.0) != base, "a quarter-petal is a real change"
 
 
 # --------------------------------------------------------------------------- #
@@ -330,11 +496,20 @@ def test_the_envelopes_sit_where_the_design_asks(
     parameters: stars.Parameters,
 ) -> None:
     built = glyphs[style]
+    radius = parameters.small.radius
+    # Half-heights of the two templates in this style: R with a petal pointing
+    # up (roman), the valley half-width when the italic has turned it.
+    tall_full = half_extent(parameters.full, parameters, style, 90.0)
+    tall_small = half_extent(parameters.small, parameters, style, 90.0)
 
-    # ✽ fills the cap height plus a 10-unit overshoot either side, centred on
-    # its advance.
+    # ✽ is centred on its advance and on the cap-height midpoint; upright it
+    # fills the cap height plus a 10-unit overshoot either side, and turned it
+    # keeps that centre while trading height for width.
     full = built["uni273D"]
-    assert full.height == 2 * parameters.full.radius
+    assert full.height == pytest.approx(2 * tall_full, abs=TOLERANCE)
+    assert full.width == pytest.approx(
+        2 * half_extent(parameters.full, parameters, style, 0.0), abs=TOLERANCE
+    )
     assert (full.bounds[1] + full.bounds[3]) / 2 == pytest.approx(
         parameters.full.center_y, abs=TOLERANCE
     )
@@ -342,32 +517,43 @@ def test_the_envelopes_sit_where_the_design_asks(
         full.advance - full.bounds[2], abs=TOLERANCE
     ), "✽ is centred on its advance"
 
-    # star.small fills its 360-unit advance box top to bottom, centred across it.
+    # star.small is centred in its 360-unit advance box, vertically and across.
     small = built["star.small"]
-    assert small.advance == 2 * parameters.small.radius
-    assert (small.bounds[1], small.bounds[3]) == (0, 2 * parameters.small.radius)
+    assert small.advance == 2 * radius
+    assert small.bounds[1::2] == pytest.approx(
+        (radius - tall_small, radius + tall_small), abs=TOLERANCE
+    )
     assert small.bounds[0] == small.advance - small.bounds[2]
 
-    # ⁎ and ⁑ set like the style's own asterisk; ⁑ stands on the baseline.
+    # ⁎ and ⁑ set like the style's own asterisk; ⁑ hangs its lower star in
+    # star.small's own box on the baseline.
     for name in ("uni204E", "uni2051"):
         assert built[name].advance == stars.ASTERISK_ADVANCE[style]
-    assert built["uni204E"].bounds[1::2] == (
-        stars.ASTERISK_CENTER_Y - parameters.small.radius,
-        stars.ASTERISK_CENTER_Y + parameters.small.radius,
+    assert built["uni204E"].bounds[1::2] == pytest.approx(
+        (
+            stars.ASTERISK_CENTER_Y - tall_small,
+            stars.ASTERISK_CENTER_Y + tall_small,
+        ),
+        abs=TOLERANCE,
     )
-    assert built["uni2051"].bounds[1::2] == (
-        0,
-        stars.ASTERISK_CENTER_Y + parameters.small.radius,
+    assert built["uni2051"].bounds[1::2] == pytest.approx(
+        (radius - tall_small, stars.ASTERISK_CENTER_Y + tall_small), abs=TOLERANCE
     )
 
-    # ⁂ keeps Literata's advance and stands on the baseline, one star above two.
+    # ⁂ keeps Literata's advance, one star above two.
     asterism = built["uni2042"]
     assert asterism.advance == stars.ASTERISM_ADVANCE[style]
     rise = parameters.small.separation * math.sin(math.radians(60.0))
-    assert asterism.bounds[1] == 0
+    assert asterism.bounds[1] == pytest.approx(radius - tall_small, abs=TOLERANCE)
     assert asterism.bounds[3] == pytest.approx(
-        2 * parameters.small.radius + rise, abs=TOLERANCE
+        radius + rise + tall_small, abs=TOLERANCE
     )
+
+    # Nothing the turn or the lean does pushes a star outside its advance or
+    # past Literata's line metrics (§15.1.4).
+    for star in built.values():
+        assert 0 <= star.bounds[0] and star.bounds[2] <= star.advance
+        assert -10 <= star.bounds[1] and star.bounds[3] <= 774
 
 
 @pytest.mark.parametrize("style", stars.STYLES)
@@ -389,41 +575,136 @@ def test_the_composites_are_translations_of_the_one_small_star(
             assert not hasattr(component, "transform"), "no scale or rotation"
             assert (component.x, component.y) == (int(component.x), int(component.y))
 
-    centres = _centres(built["uni2042"].glyph.components, parameters)
+    # Stood back up, ⁂ is still an equilateral triangle and ⁑ still a pair one
+    # separation apart: the lean displaces the stack, it does not redraw it.
+    centres = _centres(built["uni2042"].glyph.components, parameters, style)
     for a, b in itertools.combinations(centres, 2):
         assert math.dist(a, b) == pytest.approx(
             parameters.small.separation, abs=TOLERANCE
         ), "⁂ is an equilateral triangle of stars"
 
-    pair = _centres(built["uni2051"].glyph.components, parameters)
+    pair = _centres(built["uni2051"].glyph.components, parameters, style)
     assert math.dist(pair[0], pair[1]) == pytest.approx(
         parameters.small.separation, abs=TOLERANCE
     )
 
+    # In the italic the stack is tilted: ⁑'s two stars sit at different x, and
+    # ⁂'s top star is right of the midpoint of its pair. In the roman neither is.
+    leans_by = 0 if style == "roman" else 1
+    two = built["uni2051"].glyph.components
+    assert (two[0].x != two[1].x) == bool(leans_by)
+    three = sorted(built["uni2042"].glyph.components, key=lambda c: c.y)
+    midpoint = (three[0].x + three[1].x) / 2
+    assert (three[2].x > midpoint) == bool(leans_by)
+
 
 def _centres(
-    components: Sequence[object], parameters: stars.Parameters
+    components: Sequence[object],
+    parameters: stars.Parameters,
+    style: str = "roman",
 ) -> list[tuple[float, float]]:
-    """Component offsets read back as star centres."""
+    """Component offsets read back as star centres, with any lean undone.
+
+    The inverse of :func:`stars.leaned`: subtract each star's share of the
+    stack's tilt and the group is back to the upright arrangement the roman
+    ships, which is the thing worth asserting shapes about.
+    """
     radius = parameters.small.radius
-    return [(component.x + radius, component.y + radius) for component in components]
+    centres = [(component.x + radius, component.y + radius) for component in components]
+    if style != "italic" or not centres:
+        return centres
+    lean = parameters.italic.lean
+    mean_y = sum(y for _, y in centres) / len(centres)
+    return [(x - (y - mean_y) * lean, y) for x, y in centres]
 
 
-def test_both_styles_share_one_set_of_outlines(
-    glyphs: Mapping[str, Mapping[str, stars.StarGlyph]]
+def test_the_italic_stars_are_the_roman_turned(
+    glyphs: Mapping[str, Mapping[str, stars.StarGlyph]], parameters: stars.Parameters
 ) -> None:
-    """The stars stay upright in the italic (D5): same outlines, different advances."""
+    """D21: the italic's outline is the roman's rotated — never sheared, never redrawn.
+
+    Measured as xor area against the roman turned about its own centre, both
+    ways round: a six-fold star is symmetric under 60°, so +30 and −30 have to
+    match equally well. What is left over is integer-rounding noise (about 1% of
+    the area); a shear or a redraw is an order of magnitude more, which is what
+    the 2% gate is set to catch.
+    """
     roman, italic = glyphs["roman"], glyphs["italic"]
+    rotation = parameters.italic.rotation
+
     for name in ("star.small", "uni273D"):
-        assert points(roman[name].glyph) == points(italic[name].glyph)
-        assert list(roman[name].glyph.flags) == list(italic[name].glyph.flags)
-        assert roman[name].advance == italic[name].advance
-    for name in ("uni204E", "uni2051", "uni2042"):
-        # Composites differ only in where the shared component is placed, which
-        # follows the style's own advance.
-        assert roman[name].advance != italic[name].advance
-        assert roman[name].width == italic[name].width
-        assert roman[name].height == italic[name].height
+        assert roman[name].advance == italic[name].advance, "the turn costs no width"
+        assert points(roman[name].glyph) != points(italic[name].glyph), (
+            "the two styles no longer share one drawing"
+        )
+        assert len(points(roman[name].glyph)) == len(points(italic[name].glyph))
+
+        upright = about_its_centre(roman[name])
+        turned = about_its_centre(italic[name])
+        area = abs(turned.area)
+        assert difference_area(upright, turned) > 0.2 * area, (
+            "an unturned roman is nowhere near the italic"
+        )
+        for direction in (rotation, -rotation):
+            ratio = difference_area(rotated(upright, direction), turned) / area
+            assert ratio < 0.02, f"{name} turned {direction:+g}°: xor area {ratio:.4f}"
+
+        # And it really is a rotation and not a skew that happens to land near
+        # one: shearing the roman by the stacks' own slant does not pass.
+        slant = math.tan(math.radians(parameters.italic.stack_slant))
+        sheared = rotated(upright, rotation).transform(1.0, 0.0, slant, 1.0, 0.0, 0.0)
+        assert difference_area(sheared, turned) > 0.02 * area
+
+
+def test_the_italic_stacks_lean_and_the_single_stars_do_not(
+    glyphs: Mapping[str, Mapping[str, stars.StarGlyph]], parameters: stars.Parameters
+) -> None:
+    """D21's second half: ⁑ and ⁂ tilt as groups; ⁎ (a stack of one) does not.
+
+    Every star keeps the plain turned outline — what moves is where the stack
+    puts it: x shifts by (its centre height − the stack's mean height) · tan
+    2.5°. Over ⁑'s 414-unit separation that is 19 units between its two stars,
+    and over ⁂'s 358.5-unit rise 16 between its top star and its pair — the very
+    offset Literata Italic's own ⁂ uses.
+    """
+    roman, italic = glyphs["roman"], glyphs["italic"]
+    lean = parameters.italic.lean
+
+    def raw_centres(star: stars.StarGlyph) -> list[tuple[float, float]]:
+        radius = parameters.small.radius
+        return [(c.x + radius, c.y + radius) for c in star.glyph.components]
+
+    # ⁎ is a stack of one: it moves with its advance and with nothing else, so
+    # its star sits in the same place relative to that advance in both styles.
+    for style, built in (("roman", roman), ("italic", italic)):
+        (centre,) = raw_centres(built["uni204E"])
+        assert centre[0] - built["uni204E"].advance / 2.0 == pytest.approx(
+            0.0, abs=TOLERANCE
+        ), f"⁎ stays centred on its advance in the {style}"
+        assert centre[1] == stars.ASTERISK_CENTER_Y
+
+    # ⁑: top minus bottom. ⁂: top minus the midpoint of the pair it stands on.
+    for name, expected in STACK_LEAN.items():
+        for style, built in (("roman", roman), ("italic", italic)):
+            ordered = sorted(raw_centres(built[name]), key=lambda centre: centre[1])
+            top = ordered[-1]
+            below = ordered[:-1]
+            base_x = sum(x for x, _ in below) / len(below)
+            base_y = sum(y for _, y in below) / len(below)
+            shift = top[0] - base_x
+            if style == "roman":
+                assert shift == pytest.approx(0.0, abs=TOLERANCE), f"{name} is upright"
+            else:
+                assert shift == pytest.approx(expected, abs=TOLERANCE)
+                # …which is the mean-height rule, not a number typed in twice.
+                assert shift == pytest.approx((top[1] - base_y) * lean, abs=TOLERANCE)
+
+    # The lean is a displacement of whole stars: each one is still the very same
+    # component, placed by an integer translation.
+    for name in STACK_LEAN:
+        for component in italic[name].glyph.components:
+            assert component.glyphName == "star.small"
+            assert not hasattr(component, "transform")
 
 
 # --------------------------------------------------------------------------- #
@@ -431,24 +712,41 @@ def test_both_styles_share_one_set_of_outlines(
 # --------------------------------------------------------------------------- #
 
 
-def test_the_svg_draws_every_glyph(parameters: stars.Parameters) -> None:
-    built = stars.build_glyphs(parameters)
-    svg = stars.render_svg(built)
+def test_the_svg_draws_every_glyph_in_both_styles(parameters: stars.Parameters) -> None:
+    per_style = {style: stars.build_glyphs(parameters, style) for style in stars.STYLES}
+    svg = stars.render_svg(per_style, parameters=parameters)
     root = ElementTree.fromstring(svg)  # also proves it is well-formed XML
     assert root.tag == "{http://www.w3.org/2000/svg}svg"
 
     paths = root.findall(".//{http://www.w3.org/2000/svg}path")
-    # one outline row plus one run per text size, each covering all five glyphs
-    assert len(paths) == len(built) * (1 + len(stars.SVG_TEXT_SIZES))
+    # per style: one outline row plus one run per text size, each covering all
+    # five glyphs.
+    assert len(paths) == sum(
+        len(built) * (1 + len(stars.SVG_TEXT_SIZES)) for built in per_style.values()
+    )
     for element in paths:
         assert element.get("d", "").startswith("M")
 
     text = "".join(element.text or "" for element in root.iter())
-    for name in built:
-        assert name in text
-    for star in built.values():
-        if star.codepoint is not None:
-            assert f"U+{star.codepoint:04X}" in text
+    for style, built in per_style.items():
+        assert f"{style} —" in text, "every row says which style it is"
+        for name in built:
+            assert name in text
+        for star in built.values():
+            if star.codepoint is not None:
+                assert f"U+{star.codepoint:04X}" in text
+
+    # The header states the treatment in the numbers the file actually carries,
+    # and no longer claims the two styles share their outlines.
+    assert f"turned {parameters.italic.rotation:g}°" in text
+    assert f"lean {parameters.italic.stack_slant:g}°" in text
+    assert "identical" not in text
+
+    # The italic row's bboxes are the italic's, not a second copy of the roman's.
+    for name, envelopes in EXPECTED.items():
+        for advance, bounds in envelopes.values():
+            assert f"bbox {bounds[0]} {bounds[1]} {bounds[2]} {bounds[3]}" in text
+            assert f"adv {advance}" in text
 
 
 def test_the_command_reports_without_touching_upstream(
@@ -469,10 +767,34 @@ def test_the_command_is_wired_into_the_cli() -> None:
     assert arguments.svg == Path("build/stars.svg")
 
 
-def test_a_missing_upstream_font_names_the_fetch_task(tmp_path: Path, repo_root: Path) -> None:
+@pytest.mark.parametrize("style", stars.STYLES)
+def test_a_missing_upstream_font_names_the_fetch_task(
+    style: str, tmp_path: Path, repo_root: Path
+) -> None:
     (tmp_path / "sources").mkdir()
     (tmp_path / "sources" / "upstream.toml").write_text(
         (repo_root / "sources" / "upstream.toml").read_text(encoding="utf-8"), encoding="utf-8"
     )
     with pytest.raises(stars.StarsError, match="mise run fetch"):
-        stars.literata_path(tmp_path)
+        stars.literata_path(tmp_path, style=style)
+
+
+def test_each_style_compares_against_its_own_literata() -> None:
+    """The italic row is judged beside Literata *Italic*, not beside the roman."""
+    assert set(stars.LITERATA_MEMBERS) == set(stars.STYLES)
+    assert "Italic" in stars.LITERATA_MEMBERS["italic"]
+    assert "Italic" not in stars.LITERATA_MEMBERS["roman"]
+    with pytest.raises(stars.StarsError, match="unknown style"):
+        stars.literata_path(Path("."), style="oblique")
+    with pytest.raises(stars.StarsError, match="unknown style"):
+        stars.orientation_for(  # type: ignore[call-overload]
+            stars.Parameters(
+                petals=6,
+                orientation=90.0,
+                cubic_max_err=1.0,
+                full=stars.FullStar(360, 0.22, 0.10, 805, 350),
+                small=stars.SmallStar(180, 0.26, 0.14, 54),
+                italic=stars.ItalicTreatment(30.0, 2.5),
+            ),
+            "oblique",
+        )

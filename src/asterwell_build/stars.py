@@ -27,17 +27,33 @@ does not fill in at text sizes. Tuning those numbers is an edit to
 
 Geometry notes worth keeping in mind when reading the numbers this prints:
 
-*Orientation.* The template is built pointing up, as spelled out above, and the
-i-th petal's **axis** ends up at ``orientation + i · 360/petals`` degrees: with
-``orientation = 90`` one petal points straight up. (The template is therefore
-rotated by ``orientation − 90 + i · 60``, since it starts at 90 already.)
+*Orientation, and what the italic changes.* The template is built pointing up,
+as spelled out above, and the i-th petal's **axis** ends up at ``orientation +
+i · 360/petals`` degrees: with ``orientation = 90`` one petal points straight
+up. (The template is therefore rotated by ``orientation − 90 + i · 60``, since
+it starts at 90 already.) The **italic turns that template by**
+``[italic] rotation`` **degrees** (30, so petals at 60° and 120° — up-right and
+up-left, none straight up) — decision D21, from the user's "rotate the flower …
+for italic only". The two styles therefore do *not* share one outline; the
+italic's is the roman's turned, never sheared, and the roman is untouched. On
+top of the turn, the **stacks** ⁑ and ⁂ lean: each star's centre moves
+horizontally by ``(its centre height − the stack's mean centre height) ·
+tan(stack_slant)``, so the group tilts as a whole while every star in it keeps
+the plain turned shape. That is how Literata Italic leans its own stacked marks
+(its colon 2.49°, its semicolon 3.30°, its ⁂ +16 units) — by displacement, not
+by skewing the mark. Single stars (⁎ and ✽) turn but never lean; a stack of one
+has nothing to lean about. What stays true across the two styles is D5: the
+stars are invariant along the ``wght`` and ``opsz`` axes, one fixed design at
+every weight and optical size.
 
 *The star is not square.* A six-fold shape repeats every 60°, so its width and
 its height are extents in directions 30° apart and cannot both be ``2R``: with a
 petal pointing up, the height is exactly ``2R`` (the tips) while the width is
 ``2·((R − w)·cos 30° + w)``, about 89.6% of it. The box is centred on the star
 in both directions, but it is not a square, and the envelopes below are the
-real width.
+real width. The italic's turn swaps the two over — two tips land on the
+horizontal, so the star comes out wider than tall — which is why ✽'s side
+bearings drop from 80 to 43 on an unchanged advance.
 
 *Extrema are on-curve.* Each petal arc is split at the petal axis and at every
 cardinal direction it crosses before being drawn as cubic Béziers, so the
@@ -54,8 +70,10 @@ integer translation only, so the three of them cost one outline between them and
 can never drift apart.
 
 ``asterwell-build stars --svg build/stars.svg`` renders all four next to
-Literata's own ``*``, ``◆`` and ⁂ at the same scale: the review artifact for the
-proportions this module decides.
+Literata's own ``*``, ``◆`` and ⁂ at the same scale — one row per style, the
+roman beside Literata's roman marks and the italic beside Literata *Italic*'s,
+so the turn and the lean are read against the italic's own asterisk and its own
+leaning asterism: the review artifact for the proportions this module decides.
 """
 
 from __future__ import annotations
@@ -83,12 +101,15 @@ from asterwell_build import upstream
 Log = Callable[[str], None]
 
 __all__ = [
+    "ItalicTreatment",
     "Parameters",
     "StarGlyph",
     "StarsError",
     "build_glyphs",
     "glyf_table",
+    "leaned",
     "load_parameters",
+    "orientation_for",
     "render_svg",
     "star_path",
 ]
@@ -115,10 +136,17 @@ CODEPOINTS: Mapping[str, int | None] = {
     THREE: 0x2042,
 }
 
-#: The two styles the family ships. Both get **identical outlines** — the stars
-#: stay upright in the italic (design decision D5) — and differ only in the
-#: advances they inherit from Literata.
+#: The two styles the family ships. They share the construction and every
+#: parameter but two: the italic turns the template by ``[italic] rotation`` and
+#: leans the stacks ⁑ ⁂ by ``[italic] stack_slant`` (D21), and each style takes
+#: its own advances from Literata. Outlines are *not* shared between them; what
+#: is invariant is the pair of axes (D5).
 STYLES = ("roman", "italic")
+
+#: The style whose parameters ``sources/stars.toml`` states directly; every other
+#: style is that one plus its own entry in the file.
+ROMAN = "roman"
+ITALIC = "italic"
 
 #: Advance of Literata's own ``*`` per style (§14.1). ⁎ and ⁑ take it so they
 #: set like an asterisk in running text.
@@ -132,10 +160,17 @@ ASTERISM_ADVANCE: Mapping[str, int] = {"roman": 889, "italic": 915}
 #: small star sits so it reads as an asterisk.
 ASTERISK_CENTER_Y = 594
 
-#: Basename of the Literata member the ``--svg`` comparison reads, and the
-#: glyphs it takes from it: the two the spec asks for, plus the asterism this
-#: family replaces.
-LITERATA_MEMBER = "Literata[opsz,wght].ttf"
+#: Basename of the Literata member the ``--svg`` comparison reads, per style:
+#: each row of the review SVG is set beside its *own* style's marks, so the
+#: italic stars are judged against the italic's asterisk and its leaning ⁂.
+LITERATA_MEMBERS: Mapping[str, str] = {
+    ROMAN: "Literata[opsz,wght].ttf",
+    ITALIC: "Literata-Italic[opsz,wght].ttf",
+}
+
+#: Glyphs the comparison takes from that member: the two the spec asks for, plus
+#: the asterism this family replaces. The labels name Literata; the style's own
+#: name is substituted in when the cells are read.
 COMPARISON_GLYPHS = (
     ("asterisk", "Literata *", "U+002A"),
     ("uni25C6", "Literata ◆", "U+25C6"),
@@ -188,6 +223,22 @@ class SmallStar(Outline):
 
 
 @dataclass(frozen=True)
+class ItalicTreatment:
+    """``[italic]`` — the two numbers that are the whole difference (D21)."""
+
+    rotation: float
+    """Degrees the template turns in the italic. 30: petals up-right and up-left."""
+
+    stack_slant: float
+    """Degrees the stacked stars of ⁑ and ⁂ lean, tops to the right."""
+
+    @property
+    def lean(self) -> float:
+        """``tan(stack_slant)`` — horizontal shift per unit of height above the mean."""
+        return math.tan(math.radians(self.stack_slant))
+
+
+@dataclass(frozen=True)
 class Parameters:
     """All of ``sources/stars.toml``."""
 
@@ -196,6 +247,7 @@ class Parameters:
     cubic_max_err: float
     full: FullStar
     small: SmallStar
+    italic: ItalicTreatment
 
 
 def parameters_path_for(root: Path) -> Path:
@@ -214,6 +266,7 @@ def load_parameters(path: Path) -> Parameters:
     template = _section(path, raw, "template")
     full_section = _section(path, raw, "full")
     small_section = _section(path, raw, "small")
+    italic_section = _section(path, raw, "italic")
 
     petals = _number(path, "template", template, "petals")
     if petals != int(petals) or int(petals) < 3:
@@ -238,6 +291,10 @@ def load_parameters(path: Path) -> Parameters:
             petal_width=_number(path, "small", small_section, "petal_width"),
             hub=_number(path, "small", small_section, "hub"),
             gap=_number(path, "small", small_section, "gap"),
+        ),
+        italic=ItalicTreatment(
+            rotation=_number(path, "italic", italic_section, "rotation"),
+            stack_slant=_number(path, "italic", italic_section, "stack_slant"),
         ),
     )
     _validate(path, parameters)
@@ -282,6 +339,25 @@ def _validate(path: Path, parameters: Parameters) -> None:
         raise StarsError(f"{path}: [small] gap must not be negative")
     if parameters.full.advance <= 0:
         raise StarsError(f"{path}: [full] advance must be positive")
+
+    italic = parameters.italic
+    if not math.isfinite(italic.rotation):
+        raise StarsError(f"{path}: [italic] rotation must be a finite number")
+    # A shape with `petals` petals repeats every 360/petals degrees, so a turn by
+    # a multiple of that is no turn at all — the italic would come out byte for
+    # byte the roman, which is precisely what D21 is undoing.
+    period = 360.0 / parameters.petals
+    if abs(math.remainder(italic.rotation, period)) < 1e-9:
+        raise StarsError(
+            f"{path}: [italic] rotation {italic.rotation:g}° is a multiple of the "
+            f"{period:g}° a {parameters.petals}-petal star repeats over, so it turns "
+            "the star onto itself; the italic would be indistinguishable"
+        )
+    if not -45.0 < italic.stack_slant < 45.0:
+        raise StarsError(
+            f"{path}: [italic] stack_slant must be between -45 and 45 degrees, "
+            f"got {italic.stack_slant:g}"
+        )
 
 
 def petal_half_angle(outline: Outline) -> float:
@@ -370,16 +446,34 @@ def _petal_path(outline: Outline, axis_degrees: float) -> pathops.Path:
     return path
 
 
-def _disc_path(radius: float, parameters: Parameters) -> pathops.Path:
+def orientation_for(parameters: Parameters, style: str = ROMAN) -> float:
+    """Degrees the first petal's axis points, for one style.
+
+    The roman is ``[template] orientation`` as written (90: a petal straight up);
+    the italic adds ``[italic] rotation`` (30: petals at 60° and 120°, none
+    straight up) — D21. The direction of the turn does not matter: with six
+    petals, +30 and −30 differ by 60°, which is a symmetry of the star, and the
+    two orientations produce byte-identical outlines (§14.7).
+    """
+    if style not in STYLES:
+        raise StarsError(f"unknown style {style!r}; expected one of {', '.join(STYLES)}")
+    if style == ITALIC:
+        return parameters.orientation + parameters.italic.rotation
+    return parameters.orientation
+
+
+def _disc_path(radius: float, parameters: Parameters, orientation: float) -> pathops.Path:
     """The hub: a circle at the origin, subdivided in step with the petals.
 
     The valleys between the petals are hub arc, so where the circle is split
     shows up in the finished outline. Splitting it every ``180/petals`` degrees,
-    keyed to the petals' own origin, is what has all six valleys drawn the same
-    way instead of however the quarter-arcs of a plain circle happened to fall.
+    keyed to the petals' own origin — which turns with the style, so the six
+    valleys stay identical to each other after the italic's rotation — is what
+    has all six valleys drawn the same way instead of however the quarter-arcs of
+    a plain circle happened to fall.
     """
     step = math.pi / parameters.petals
-    start = math.radians(parameters.orientation) - step * parameters.petals
+    start = math.radians(orientation) - step * parameters.petals
     splits = [start + i * step for i in range(2 * parameters.petals)]
     path = pathops.Path()
     pen = path.getPen()
@@ -390,19 +484,25 @@ def _disc_path(radius: float, parameters: Parameters) -> pathops.Path:
     return path
 
 
-def star_path(outline: Outline, parameters: Parameters) -> pathops.Path:
+def star_path(
+    outline: Outline, parameters: Parameters, *, style: str = ROMAN
+) -> pathops.Path:
     """The whole star, centred on the origin, as one closed contour.
 
     ``pathops.union`` is a ``simplify`` over every contour at once, so this both
     merges the petals with the hub and leaves a path with no self-intersections:
     running ``simplify`` on the result changes nothing (a Step-4 test).
+
+    The style decides only which way the star faces (:func:`orientation_for`);
+    every petal is redrawn in the turned frame rather than the roman being
+    rotated after the fact, so extremes stay on-curve at any orientation.
     """
+    orientation = orientation_for(parameters, style)
     step = 360.0 / parameters.petals
     contours = [
-        _petal_path(outline, parameters.orientation + i * step)
-        for i in range(parameters.petals)
+        _petal_path(outline, orientation + i * step) for i in range(parameters.petals)
     ]
-    contours.append(_disc_path(outline.hub * outline.radius, parameters))
+    contours.append(_disc_path(outline.hub * outline.radius, parameters, orientation))
 
     path = pathops.Path()
     # clockwise=True: TrueType fills clockwise outer contours, as Literata's own
@@ -477,13 +577,42 @@ def composite_glyph(
     return glyph
 
 
-def build_glyphs(parameters: Parameters, style: str = "roman") -> dict[str, StarGlyph]:
+def leaned(
+    centres: Sequence[tuple[float, float]], parameters: Parameters, style: str
+) -> list[tuple[float, float]]:
+    """Tilt a stack of star centres as a group, without touching any outline.
+
+    Each centre moves horizontally by ``(its height − the stack's mean height) ·
+    tan(stack_slant)``, so the stack leans about its own middle: the top star
+    goes right, the bottom left, and the group's optical centre stays where the
+    advance put it. Nothing is sheared — every star in the stack is the same
+    turned outline — which is how Literata Italic leans its own colon, semicolon
+    and ⁂ (D21, §14.7).
+
+    The roman leans by nothing, and a stack of one (⁎) never moves in either
+    style: its only centre *is* the mean.
+    """
+    if style != ITALIC or not centres:
+        return list(centres)
+    lean = parameters.italic.lean
+    mean_y = sum(y for _, y in centres) / len(centres)
+    return [(x + (y - mean_y) * lean, y) for x, y in centres]
+
+
+def build_glyphs(parameters: Parameters, style: str = ROMAN) -> dict[str, StarGlyph]:
     """The five glyphs of the star family, in glyph-order, for one style.
 
-    The two *outlines* — ``star.small`` and ``uni273D`` — are identical in both
-    styles, upright in the italic (D5). What the style changes is the advance ⁎
-    ⁑ ⁂ inherit from Literata, and with it where the shared component sits
-    inside that advance.
+    The two *outlines* — ``star.small`` and ``uni273D`` — are the same template
+    in both styles, but not the same drawing: in the italic it is turned by
+    ``[italic] rotation`` (D21), so a petal points up-left and up-right instead
+    of straight up. The roman is exactly what it has always been.
+
+    Placement changes in two ways with the style. Every composite takes the
+    style's own asterisk/asterism advance from Literata, which moves the shared
+    component inside it; and in the italic the *stacks* ⁑ and ⁂ additionally lean
+    (:func:`leaned`) — ⁑'s two stars ±9 units about their midpoint, ⁂'s top star
+    16 units right of its pair. ⁎ and ✽ are single stars: they turn, they never
+    lean. Composites stay translation-only either way (D9).
     """
     if style not in STYLES:
         raise StarsError(f"unknown style {style!r}; expected one of {', '.join(STYLES)}")
@@ -495,18 +624,25 @@ def build_glyphs(parameters: Parameters, style: str = "roman") -> dict[str, Star
     # below place it by its centre, which is what keeps ⁎ optically centred.
     small_advance = otRound(2 * small.radius)
     small_glyph = outline_glyph(
-        star_path(small, parameters), parameters, (small.radius, small.radius)
+        star_path(small, parameters, style=style),
+        parameters,
+        (small.radius, small.radius),
     )
     full = parameters.full
     full_glyph = outline_glyph(
-        star_path(full, parameters), parameters, (full.advance / 2.0, full.center_y)
+        star_path(full, parameters, style=style),
+        parameters,
+        (full.advance / 2.0, full.center_y),
     )
 
     glyf: dict[str, Glyph] = {SMALL: small_glyph}
     centre = (small.radius, small.radius)
 
     def offsets(*centres: tuple[float, float]) -> list[tuple[float, float]]:
-        return [(x - centre[0], y - centre[1]) for x, y in centres]
+        """Star centres → component translations, leaning the stack on the way."""
+        return [
+            (x - centre[0], y - centre[1]) for x, y in leaned(centres, parameters, style)
+        ]
 
     asterisk_advance = ASTERISK_ADVANCE[style]
     asterism_advance = ASTERISM_ADVANCE[style]
@@ -638,10 +774,19 @@ def _svg_cells(
 
 
 def literata_cells(
-    root: Path, names: Sequence[tuple[str, str, str]] = COMPARISON_GLYPHS
+    root: Path,
+    names: Sequence[tuple[str, str, str]] = COMPARISON_GLYPHS,
+    *,
+    style: str = ROMAN,
 ) -> list[Cell]:
-    """Comparison cells read from the pinned Literata roman variable font."""
-    path = literata_path(root)
+    """Comparison cells read from the pinned Literata VF of one style.
+
+    The italic row of the review SVG is set beside Literata *Italic*'s own
+    ``*``, ``◆`` and ⁂ — the last of which leans its top asterisk 16 units over
+    its pair, the number ``stack_slant`` reproduces.
+    """
+    path = literata_path(root, style=style)
+    prefix = "Literata Italic" if style == ITALIC else "Literata"
     font = TTFont(path, lazy=True)
     glyph_set = font.getGlyphSet()
     metrics = font["hmtx"].metrics
@@ -658,7 +803,7 @@ def literata_cells(
         )
         cells.append(
             Cell(
-                label=label,
+                label=label.replace("Literata", prefix, 1),
                 detail=detail,
                 advance=metrics[name][0],
                 bounds=bounds,
@@ -669,17 +814,20 @@ def literata_cells(
     return cells
 
 
-def literata_path(root: Path) -> Path:
-    """Path of the pinned Literata roman VF inside ``build/upstream``."""
+def literata_path(root: Path, *, style: str = ROMAN) -> Path:
+    """Path of the pinned Literata VF of one style inside ``build/upstream``."""
+    if style not in LITERATA_MEMBERS:
+        raise StarsError(f"unknown style {style!r}; expected one of {', '.join(STYLES)}")
+    member = LITERATA_MEMBERS[style]
     pins = {pin.key: pin for pin in upstream.load_pins(upstream.pin_file_for(root))}
     pin = pins.get("literata")
     if pin is None:
         raise StarsError("sources/upstream.toml has no [literata] section")
-    matches = [m for m in pin.members if m.rsplit("/", 1)[-1] == LITERATA_MEMBER]
+    matches = [m for m in pin.members if m.rsplit("/", 1)[-1] == member]
     if len(matches) != 1:
         raise StarsError(
             f"sources/upstream.toml [literata.members] must pin exactly one "
-            f"{LITERATA_MEMBER}; found {len(matches)}"
+            f"{member}; found {len(matches)}"
         )
     path = pin.extract_dir(upstream.upstream_dir_for(root)) / matches[0]
     if not path.is_file():
@@ -698,26 +846,87 @@ def _format_number(value: float) -> str:
     return f"{rounded:g}"
 
 
-def render_svg(
-    glyphs: Mapping[str, StarGlyph],
-    comparisons: Sequence[Cell] = (),
-    *,
-    style: str = "roman",
-) -> str:
-    """The Step-4 review artifact: every star beside Literata's own marks.
+def _style_headline(style: str, parameters: Parameters | None) -> str:
+    """The line above one row: what this style does to the template."""
+    if style != ITALIC:
+        return "roman — the template as drawn: one petal straight up, nothing leans"
+    if parameters is None:
+        return "italic — template turned; ⁑ and ⁂ lean"
+    italic = parameters.italic
+    return (
+        f"italic — template turned {italic.rotation:g}° (petals up-left and up-right, "
+        f"none straight up); ⁑ and ⁂ lean {italic.stack_slant:g}° by displacing whole "
+        "stars, never by shearing an outline"
+    )
 
-    One row of outlines at a common em size with each glyph's advance, baseline,
-    cap height and bounding box drawn in, then the same run set as text at 34 px
-    and 17 px — the sizes at which the small star's optical correction either
-    works or does not.
+
+def render_svg(
+    per_style: Mapping[str, Mapping[str, StarGlyph]],
+    comparisons_by_style: Mapping[str, Sequence[Cell]] | None = None,
+    *,
+    parameters: Parameters | None = None,
+) -> str:
+    """The review artifact: one row per style, each beside its own Literata marks.
+
+    Per style, a row of outlines at a common em size with each glyph's advance,
+    baseline, cap height and bounding box drawn in, then the same run set as text
+    at 34 px and 17 px — the sizes at which the small star's optical correction
+    either works or does not. The roman comes first, so reading down a column is
+    exactly what the italic's turn and lean do (D21).
     """
-    cells = _svg_cells(glyphs, comparisons)
+    comparisons_by_style = comparisons_by_style or {}
     scale = SVG_EM / 1000.0
     margin = 32.0
-    gutter = 30.0
-    label_height = 46.0
 
-    top = margin + 54.0
+    parts: list[str] = []
+    total_width = 640.0
+    y = margin + 76.0
+    for style, glyphs in per_style.items():
+        parts.append(
+            f'<text class="style" x="{margin:.1f}" y="{y:.1f}">'
+            f"{_escape(_style_headline(style, parameters))}</text>"
+        )
+        cells = _svg_cells(glyphs, comparisons_by_style.get(style, ()))
+        block, right, y = _svg_row(cells, y + 12.0, scale=scale, margin=margin)
+        parts.extend(block)
+        total_width = max(total_width, right)
+        y += 26.0
+
+    height = y - 26.0 + margin
+    header = (
+        f'<text class="title" x="{margin:.1f}" y="{margin + 22:.1f}">'
+        "Asterwell Text — six-petal star family</text>"
+        f'<text class="meta" x="{margin:.1f}" y="{margin + 40:.1f}">'
+        "grey box: advance × (descender…ascender) · dashed: glyph bbox · "
+        "rules: baseline and cap height (700)</text>"
+        f'<text class="meta" x="{margin:.1f}" y="{margin + 56:.1f}">'
+        "the two styles do not share outlines: the italic's are the roman's turned "
+        "about their own centres, and its stacks are displaced (D21)</text>"
+    )
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_width:.0f}" '
+        f'height="{height:.0f}" viewBox="0 0 {total_width:.0f} {height:.0f}">'
+        f"<style>{_SVG_STYLE}</style>"
+        f'<rect class="page" x="0" y="0" width="{total_width:.0f}" height="{height:.0f}"/>'
+        + header
+        + "".join(parts)
+        + "</svg>\n"
+    )
+
+
+def _svg_row(
+    cells: Sequence[Cell],
+    top: float,
+    *,
+    scale: float,
+    margin: float,
+    gutter: float = 30.0,
+    label_height: float = 46.0,
+) -> tuple[list[str], float, float]:
+    """One style's block: the outline row, its labels, and the text runs below it.
+
+    Returns the SVG fragments, the width the row reached, and the y it ends at.
+    """
     baseline = top + SVG_ASCENDER * scale
     row_bottom = top + (SVG_ASCENDER - SVG_DESCENDER) * scale
     parts: list[str] = []
@@ -765,7 +974,7 @@ def render_svg(
         )
         x += width + gutter
 
-    total_width = max(x - gutter + margin, 640.0)
+    right = x - gutter + margin
     y = row_bottom + label_height + 30.0
     for size in SVG_TEXT_SIZES:
         parts.append(
@@ -783,24 +992,7 @@ def render_svg(
             run_x += cell.advance * run_scale + size * 0.6
         y += 34.0
 
-    height = y + margin
-    header = (
-        f'<text class="title" x="{margin:.1f}" y="{margin + 22:.1f}">'
-        f"Asterwell Text — six-petal star family ({_escape(style)})</text>"
-        f'<text class="meta" x="{margin:.1f}" y="{margin + 40:.1f}">'
-        "grey box: advance × (descender…ascender) · dashed: glyph bbox · "
-        "rules: baseline and cap height (700) · outlines are identical in both styles"
-        "</text>"
-    )
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_width:.0f}" '
-        f'height="{height:.0f}" viewBox="0 0 {total_width:.0f} {height:.0f}">'
-        f"<style>{_SVG_STYLE}</style>"
-        f'<rect class="page" x="0" y="0" width="{total_width:.0f}" height="{height:.0f}"/>'
-        + header
-        + "".join(parts)
-        + "</svg>\n"
-    )
+    return parts, right, y
 
 
 _SVG_STYLE = (
@@ -812,6 +1004,7 @@ _SVG_STYLE = (
     ".cap{stroke-dasharray:4 4}"
     "text{font-family:ui-sans-serif,-apple-system,Segoe UI,Helvetica,Arial,sans-serif}"
     ".title{font-size:17px;font-weight:600;fill:#111111}"
+    ".style{font-size:14px;font-weight:600;fill:#111111}"
     ".name{font-size:13px;fill:#111111}"
     ".meta{font-size:11px;fill:#6b6459}"
 )
@@ -868,7 +1061,10 @@ def build(
         _report(style, glyphs, log)
 
     if svg is not None:
-        text = render_svg(per_style["roman"], literata_cells(root))
+        comparisons = {
+            style: literata_cells(root, style=style) for style in per_style
+        }
+        text = render_svg(per_style, comparisons, parameters=parameters)
         svg.parent.mkdir(parents=True, exist_ok=True)
         svg.write_text(text, encoding="utf-8")
         log(f"wrote {svg}")
