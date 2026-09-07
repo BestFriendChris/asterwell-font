@@ -1,0 +1,15 @@
+# Family identity, version and notice strings. The name-table strings
+# (IDs 0, the suffix on 9, 10 and 13) are templated from these values in
+# assemble.py, and OFL.txt / FONTLOG.txt carry the same wording.
+#
+# Bumping `version` is the release ritual: edit it here, add the
+# ChangeLog line in FONTLOG.txt, commit, then tag v<version>.
+
+family      = "Asterwell Text"
+ps_family   = "AsterwellText"
+version     = "1.000"
+vendor_id   = "ASTW"
+repo_url    = "https://github.com/BestFriendChris/asterwell-font"
+license_url = "https://openfontlicense.org"
+copyright_holder = "The Asterwell Text Project Authors (https://github.com/BestFriendChris/asterwell-font)"
+reserved_font_name = "Asterwell"      # "" to declare no Reserved Font Name

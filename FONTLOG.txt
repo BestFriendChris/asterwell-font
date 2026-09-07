@@ -1,0 +1,149 @@
+FONTLOG for Asterwell Text
+==========================
+
+This file provides detailed information on the Asterwell Text font
+family. This information should be distributed along with the Asterwell
+Text fonts and any derivative works.
+
+
+Basic Font Information
+----------------------
+
+Asterwell Text is a serif text family for reading and for user
+interfaces: a full prose face in roman and italic, plus a curated set of
+symbols, markers and ornaments that share the prose face's colour and
+sit upright alongside it.
+
+    Family      Asterwell Text
+    Version     1.000
+    Vendor ID   ASTW
+    License     SIL Open Font License, Version 1.1 (see OFL.txt)
+    Repository  https://github.com/BestFriendChris/asterwell-font
+
+Each release ships two variable fonts (roman and italic, axes
+opsz 7-72 and wght 200-900), sixteen static instances derived from
+them at opsz 12, and WOFF2 builds of the two variable fonts.
+
+The family is assembled from three sources:
+
+  * Literata 3.103 -- the prose face, unchanged in outline, metrics and
+    layout. Literata is by TypeTogether, released under the SIL Open
+    Font License, Version 1.1.
+    https://github.com/googlefonts/literata
+
+  * DejaVu Sans 2.37 -- selected symbols, arrows, geometric shapes and
+    dingbats that Literata does not cover, imported and scaled to
+    Literata's cap height.
+    https://dejavu-fonts.github.io/
+    https://github.com/dejavu-fonts/dejavu-fonts
+
+  * An original six-petal star family drawn for this project, from one
+    parametric template: U+273D HEAVY TEARDROP-SPOKED ASTERISK at full
+    size, and U+204E LOW ASTERISK, U+2051 TWO ASTERISKS ALIGNED
+    VERTICALLY and U+2042 ASTERISM built from one shared small-star
+    outline. U+2042 replaces Literata's own asterism so the four read
+    as one set.
+
+The SIL Open Font License and its FAQ: https://openfontlicense.org
+
+
+Sources and Licensing
+---------------------
+
+Asterwell Text is a Modified Version of Literata and is released, in
+whole, under the SIL Open Font License, Version 1.1. OFL.txt carries
+this project's copyright line above Literata's, as OFL condition 2 and
+OFL FAQ 3.1 require; the license body is the canonical OFL 1.1 text,
+copied byte for byte from the pinned Literata OFL.txt and never
+modified.
+
+Literata declares no Reserved Font Name, so none is inherited. This
+project reserves the single word "Asterwell" (OFL FAQ 5.5: reserve the
+unique word, not the generic one). Anyone modifying these fonts must
+therefore rename them.
+
+The symbols imported from DejaVu Sans 2.37 are drawn from material the
+DejaVu project placed in the public domain ("DejaVu changes are in
+public domain", DEJAVU-LICENSE.txt). The Bitstream Vera and Arev
+copyright, trademark and permission notices from that file are
+reproduced verbatim in DEJAVU-LICENSE.txt, distributed with these
+fonts, and in the fonts' own name table, as the DejaVu license
+requires.
+
+The build verifies that no code point present in Bitstream Vera Sans
+1.10 is imported from DejaVu. The two sets share seven code points
+(U+00D7, U+2022, U+2212, U+2248, U+2264, U+2265, U+25CA); every one of
+them is taken from Literata instead, and the check fails the build if
+that ever stops being true. The fixture it checks against is
+qa/vera-1.10-codepoints.txt.
+
+The family name "Asterwell Text" contains none of the words
+"Bitstream", "Vera", "Arev", "Tavmjong Bah" or "DejaVu", so the rename
+conditions in the DejaVu license are satisfied by construction.
+
+DejaVuMathTeXGyre.ttf was not used as a source, and no glyph in this
+family derives from it; the AMSFonts clause in DEJAVU-LICENSE.txt
+therefore applies to no shipped glyph. The file is reproduced whole
+because it is the DejaVu license as published.
+
+These fonts may not be sold by themselves. OFL condition 1 and the
+Bitstream Vera permission notice agree on this: the font software may
+be bundled and sold as part of a larger package, but no copy of the
+font software on its own may be sold.
+
+
+Glyph Provenance
+----------------
+
+Every code point the family promises is listed, one per row, in
+sources/allowlist.tsv, together with the source of its outline:
+
+    custom     an original Asterwell outline
+    literata   preserved from Literata; neither imported nor redrawn
+    dejavu     imported from DejaVu Sans, scaled to Literata's cap
+               height (uniform scale 700/1493, Literata's cap height
+               over DejaVu's), except where the row's note column
+               records a per-code-point override
+
+As of version 1.000 that file has 532 rows: 4 custom, 24 literata and
+504 dejavu. The file is generated from the pinned upstream fonts and
+checked in, so changing an upstream pin or an allowlist rule produces a
+reviewable coverage diff rather than a silent change in what the family
+covers.
+
+Twenty-one rows are flagged emoji_presentation. Those code points have
+a default emoji presentation on emoji-capable platforms; append
+U+FE0E (VARIATION SELECTOR-15) after such a character in text to get
+the typographic form from this family rather than a colour emoji from
+the platform's emoji font.
+
+
+ChangeLog
+---------
+
+1.000 (2026-09-07): initial release.
+
+
+Acknowledgements
+----------------
+
+Asterwell Text exists because of other people's work.
+
+TypeTogether, for Literata, which is the whole prose face. Literata's
+own credit line reads: "Latin by Veronika Burian and Jose Scaglione.
+Greek by Irene Vlachou. Cyrillic by Vera Evstafieva."
+https://www.type-together.com
+
+The DejaVu fonts team -- the 55 contributors listed in the AUTHORS file
+of the DejaVu Sans 2.37 distribution -- for the symbol and dingbat
+coverage this family imports, and for placing their changes in the
+public domain.
+https://dejavu-fonts.github.io/
+
+Bitstream, Inc., for Bitstream Vera, the base from which DejaVu grew.
+Bitstream Vera is a trademark of Bitstream, Inc.
+
+Tavmjong Bah, for the Arev fonts merged into DejaVu.
+
+SIL Global, for the Open Font License and its FAQ.
+https://openfontlicense.org
