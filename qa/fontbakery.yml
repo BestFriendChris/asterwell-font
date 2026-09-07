@@ -1,0 +1,25 @@
+# fontbakery configuration for `asterwell-build qa` (mise run qa).
+#
+# Every entry here is a check that FAILs or ERRORs on the *unmodified* pinned
+# upstream, or that is not a property of the font at all. A check that fails
+# because of something this build does is fixed in the build, never added
+# here: an exclusion needs the one-line evidence beside it and is a review
+# item in its own right.
+
+exclude_checks:
+  # Inherited: Literata 3.103 draws zero-width base glyphs (uni200B and the
+  # other spacing/format characters); the unmodified upstream VF fails this too.
+  - base_has_width
+  # Inherited: Literata's own case-pair coverage — characters whose upper- or
+  # lowercase counterpart it does not draw. This build adds no letters.
+  - case_mapping
+  # Not a property of the font: this check queries a third-party naming service
+  # over the network, which also makes it an ERROR wherever egress is
+  # restricted (this build's CI included).
+  - fontdata_namecheck
+  # Inherited, statics only: Literata's usWinAscent 1177 / usWinDescent 308 are
+  # narrower than its own heavy weights draw — `Literata-Black.ttf` as shipped
+  # upstream has yMax 1246 against winAscent 1177 — and our statics reproduce
+  # those numbers exactly because the metrics freeze (§9.1) keeps the win pair
+  # at Literata's values. Raising it would unfreeze the family's line layout.
+  - family/win_ascent_and_descent
