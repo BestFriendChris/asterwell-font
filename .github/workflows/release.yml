@@ -3,8 +3,7 @@
 # the existing v* tags. A top entry with no tag is a release request — the
 # human wrote the version — so `release` builds this exact commit with it,
 # and only once the build and QA have passed, tags the commit, publishes the
-# GitHub Release, then hands the tag to pages.yml for the site (the `site` job
-# at the foot of this file, commented out until Step 16 lands it). Nothing is
+# GitHub Release, then hands the tag to pages.yml for the site. Nothing is
 # edited or committed by the workflow; the tag is the version and the lock:
 # once it exists, later pushes and re-runs find nothing pending (README,
 # Releasing). Pushes that leave FONTLOG.txt alone never start this workflow;
@@ -135,19 +134,17 @@ jobs:
             DEJAVU-LICENSE.txt
 
   # The showcase site is deployed from the tag this run just created, by
-  # calling pages.yml. It is commented out until Step 16 writes that file: a
-  # `uses:` pointing at a workflow that does not exist fails this whole file at
-  # parse time, and a tag pushed with GITHUB_TOKEN starts no workflow of its
+  # calling pages.yml. A tag pushed with GITHUB_TOKEN starts no workflow of its
   # own, which is why the deploy is a job here rather than a `push: tags`
-  # listener. Step 16 uncomments the block below, unchanged.
-  #
-  # site:
-  #   name: Deploy the showcase site
-  #   needs: release
-  #   permissions:
-  #     contents: read
-  #     pages: write
-  #     id-token: write
-  #   uses: ./.github/workflows/pages.yml
-  #   with:
-  #     tag: ${{ needs.release.outputs.tag }}
+  # listener. These permissions are the ceiling for the called workflow's own;
+  # a release whose site deploy fails is still a published release.
+  site:
+    name: Deploy the showcase site
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}

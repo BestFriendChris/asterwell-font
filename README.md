@@ -14,6 +14,17 @@ them into fonts.
 The family is licensed under the SIL Open Font License, Version 1.1
 (`OFL.txt`), with `"Asterwell"` as a Reserved Font Name.
 
+## Website
+
+<https://bestfriendchris.github.io/asterwell-font/> — the showcase: what
+makes the family what it is, the symbols set in real prose, a playground
+that types your own text at any weight, size, roman or italic and in
+light or dark, and the full specimen of every code point the family
+covers at
+<https://bestfriendchris.github.io/asterwell-font/specimen/>. The page
+embeds the fonts of the version it names, and every Release run rebuilds
+and redeploys it from the tag it just published.
+
 ## What's in it
 
 - **The prose face** — Literata 3.103, unchanged in outline, metrics and
