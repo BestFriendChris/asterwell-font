@@ -1,0 +1,73 @@
+# Asterwell Text — toolchain pins and build tasks.
+# Tools come from mise; Python libraries are pinned in uv.lock (uv sync --frozen).
+
+[tools]
+python = "3.13.15"
+uv     = "0.12.10"
+
+[settings]
+lockfile = true     # mise.lock is committed; CI installs with MISE_LOCKED=1
+
+[env]
+UV_PYTHON_DOWNLOADS = "never"   # uv must use the mise-provisioned interpreter, never fetch its own
+
+[tasks.setup]
+description = "Create/sync .venv from uv.lock (no resolution, fails if lock is stale)"
+run = "uv sync --frozen"
+
+[tasks.fetch]
+description = "Download + verify the pinned upstream archives into build/upstream"
+depends = ["setup"]
+sources = ["sources/upstream.toml", "src/asterwell_build/upstream.py"]
+outputs = ["build/upstream/.verified"]
+run = "uv run --frozen asterwell-build fetch"
+
+[tasks.allowlist]
+description = "Regenerate sources/allowlist.tsv from the pinned fonts (commit the diff)"
+depends = ["fetch"]
+run = "uv run --frozen asterwell-build allowlist"
+
+[tasks.build]
+description = "Assemble the family: fonts/variable, fonts/ttf, fonts/webfonts"
+depends = ["fetch"]
+# Deliberately no `sources`/`outputs`: mise's skip-if-unchanged compares files,
+# and the version the fonts carry comes from the environment (ASTERWELL_VERSION)
+# or from a tag, neither of which it can see. `ASTERWELL_VERSION=0.002 mise run
+# build` after a dev build must not reuse fonts that say 0.000. The build is
+# about a minute; correctness wins.
+# Byte-reproducible builds: head.modified comes from SOURCE_DATE_EPOCH (fontTools honours it).
+run = """
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
+uv run --frozen asterwell-build build
+"""
+
+[tasks.qa]
+description = "Coverage, metrics-freeze, naming, shaping, license and fontbakery checks on fonts/"
+depends = ["build"]
+run = "uv run --frozen asterwell-build qa"
+
+[tasks.specimen]
+description = "Render fonts/specimen/index.html (full allowlist in every shipped style)"
+depends = ["build"]
+run = "uv run --frozen asterwell-build specimen"
+
+[tasks.site]
+description = "Render the showcase site into fonts/site (index.html, webfonts, specimen, .nojekyll)"
+depends = ["specimen"]
+run = "uv run --frozen asterwell-build site"
+
+[tasks.package]
+description = "fonts/dist: release zip, SHA256SUMS.txt, RELEASE-NOTES.md"
+depends = ["qa", "specimen"]
+run = "uv run --frozen asterwell-build package"
+
+[tasks.test]
+description = "Unit tests (no network, no built fonts) + lockfile freshness"
+depends = ["setup"]
+run = """
+uv lock --check
+uv run --frozen pytest -q
+"""
+
+[tasks.clean]
+run = "rm -rf build fonts"

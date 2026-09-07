@@ -1,0 +1,10 @@
+# This is the official list of project authors for copyright purposes.
+# The copyright notice in OFL.txt and in the fonts' name table refers to
+# this list as "The Asterwell Text Project Authors".
+#
+# Upstream credits -- TypeTogether for Literata, the DejaVu fonts team,
+# Bitstream, Inc. and Tavmjong Bah -- are recorded in FONTLOG.txt, not
+# here.
+
+The Asterwell Text Project Authors
+(https://github.com/BestFriendChris/asterwell-font)

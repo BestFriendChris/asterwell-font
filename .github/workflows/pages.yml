@@ -1,0 +1,110 @@
+# Publish the showcase site for a release. Called by release.yml once the
+# release is published (a tag pushed with GITHUB_TOKEN starts no workflow, so
+# this cannot be a `push: tags` trigger), or run by hand for an existing tag.
+# Runs the same gate as CI first so nothing that failed QA is ever served,
+# then hands fonts/site to GitHub Pages as an artifact — no branch is involved.
+#
+# The one setting this needs is the user's, once: Settings -> Pages -> Build
+# and deployment -> Source -> "GitHub Actions". The workflow token cannot turn
+# Pages on by itself (actions/configure-pages documents that its `enablement`
+# input needs a PAT or App token), and until the source is set the `deploy` job
+# below fails with "Pages not enabled" — the font release itself is unaffected,
+# because release.yml runs this as a separate, later job.
+name: Pages
+
+on:
+  # release.yml's `site` job calls this after it has tagged and published; the
+  # tag it passes is what gets built, so the site always names a released
+  # version. `workflow_dispatch` is the same thing by hand — to republish the
+  # site from an existing tag without cutting a release.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build the site from (vM.mmm, e.g. v0.001)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build the site from (vM.mmm, e.g. v0.001)"
+        required: true
+        type: string
+
+# The whole grant: read the repository, write a Pages deployment, and mint the
+# OIDC token deploy-pages exchanges for it. Nothing here writes to the repo —
+# no branch, no commit, no tag.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false    # a release deploy is never cancelled by a later one
+
+jobs:
+  build:
+    name: Build the site from the tag
+    runs-on: ubuntu-latest
+    # One full chain (fetch, build, QA, specimen, package) plus the site: the
+    # fontbakery pass over the 18 fonts is most of it, about seven minutes when
+    # measured locally. The timeout is a guard against a hang, not a target.
+    timeout-minutes: 60
+    env:
+      MISE_LOCKED: "1"
+      # The tag is the version: `resolve_version` accepts a tag's leading `v`
+      # and normalises it, so the fonts, the specimen and the site footer all
+      # carry the released M.mmm rather than a 0.000 dev build.
+      ASTERWELL_VERSION: ${{ inputs.tag }}
+    steps:
+      # The released commit, not the caller's: a reusable workflow's checkout
+      # defaults to the branch that called it.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      # The two pinned upstream archives (~23 MB), content-addressed by
+      # sources/upstream.toml; shared with ci.yml and release.yml.
+      - uses: actions/cache@v6
+        with:
+          path: build/upstream
+          key: upstream-${{ hashFiles('sources/upstream.toml') }}
+
+      - run: mise run test
+
+      # The same gate the release itself passed, re-run on the tag: nothing that
+      # fails QA is ever served. `site` depends on `specimen` (and so on
+      # `build`), and `package` on `qa` — between them the whole chain runs.
+      - run: mise run package
+      - run: mise run site
+
+      - uses: actions/configure-pages@v5
+
+      # fonts/site as it stands: index.html, the two variable WOFF2s, the
+      # specimen under specimen/, and .nojekyll so Jekyll leaves the
+      # `[opsz,wght]` file names alone. `include-hidden-files` is what keeps
+      # that last one: the action's tar carries `--exclude=.[^/]*` unless this
+      # is true, which would drop the dotfile silently (verified in its
+      # action.yml). `.git`/`.github` are excluded either way, and the
+      # generated tree has no other dotfile — so what deploys is exactly what
+      # `mise run site` wrote.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: fonts/site
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

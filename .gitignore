@@ -1,0 +1,13 @@
+# Build outputs (never committed; releases carry the binaries)
+build/
+fonts/
+
+# Python tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Per-machine mise overrides
+.mise.local.toml

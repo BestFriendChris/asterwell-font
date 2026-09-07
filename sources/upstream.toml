@@ -1,0 +1,30 @@
+# Pinned upstream inputs. Change a pin only together with its checksum and
+# with a regenerated sources/allowlist.tsv (the coverage diff is the review).
+
+[literata]
+name    = "Literata"
+version = "3.103"
+repo    = "https://github.com/googlefonts/literata"      # archived read-only 2026-04-19
+commit  = "0c2761b727a1b3a7cffd313c37f0f5163dfc7a63"     # tag 3.103 == main HEAD == google/fonts pin
+url     = "https://github.com/googlefonts/literata/releases/download/3.103/3.103.zip"
+sha256  = "f7fb973cafb26cf785cbebaeaf51c18f87c15a3bcf4d82a7d4857564db5b056d"
+size    = 17546949
+license = "OFL-1.1"
+[literata.members]                                          # path inside the zip → sha256
+"fonts/variable/Literata[opsz,wght].ttf"        = "b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440"
+"fonts/variable/Literata-Italic[opsz,wght].ttf" = "d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465"
+"OFL.txt"                                       = "8742963604cd89dc81437811a850018fc03b2bfad686d7422c8235967c87614e"
+
+[dejavu]
+name    = "DejaVu Sans"
+version = "2.37"
+repo    = "https://github.com/dejavu-fonts/dejavu-fonts"
+tag     = "version_2_37"
+url     = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2"
+sha256  = "fa9ca4d13871dd122f61258a80d01751d603b4d3ee14095d65453b4e846e17d7"
+size    = 5429777
+license = "Bitstream-Vera"     # SPDX id; DejaVu's own changes are public domain
+[dejavu.members]
+"dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf" = "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954"
+"dejavu-fonts-ttf-2.37/LICENSE"            = "7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93"
+"dejavu-fonts-ttf-2.37/AUTHORS"            = "915a742f0b242ea43fcbef934b6d24353b51351470f71d8a8d00c751892fad50"

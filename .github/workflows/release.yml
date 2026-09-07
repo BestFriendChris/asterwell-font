@@ -1,0 +1,150 @@
+# Release from the ChangeLog. A push to main that changes FONTLOG.txt runs
+# `detect` (seconds): it parses the ChangeLog and compares the versions with
+# the existing v* tags. A top entry with no tag is a release request — the
+# human wrote the version — so `release` builds this exact commit with it,
+# and only once the build and QA have passed, tags the commit, publishes the
+# GitHub Release, then hands the tag to pages.yml for the site. Nothing is
+# edited or committed by the workflow; the tag is the version and the lock:
+# once it exists, later pushes and re-runs find nothing pending (README,
+# Releasing). Pushes that leave FONTLOG.txt alone never start this workflow;
+# a failed release is retried with "Re-run jobs" or the next FONTLOG change.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [FONTLOG.txt]     # if the file ever moves, change this and qa.py's path
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false    # two entries merged back to back release one after the other
+
+jobs:
+  detect:
+    name: Is there a ChangeLog entry to release?
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.pending.outputs.version }}
+    env:
+      MISE_LOCKED: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0       # every tag, for the comparison
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      # `uv sync --frozen`: .venv from uv.lock, so the parser below runs on the
+      # pinned toolchain rather than on whatever the runner has.
+      - run: mise run setup
+
+      # Prints the pending version, or nothing at all when the ChangeLog names
+      # no version that is missing its tag — a typo fix in FONTLOG.txt gets
+      # here and correctly releases nothing. A malformed or non-monotonic entry
+      # exits non-zero with the fix spelled out (the pull request already said
+      # so; this is the second chance to notice).
+      - name: Compare FONTLOG.txt's ChangeLog with the tags
+        id: pending
+        run: |
+          version="$(git tag -l 'v*' | mise exec -- uv run --frozen asterwell-build version --pending --at-head "$(git tag --points-at HEAD)")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$version" ]; then echo "Pending: v$version on $(git rev-parse --short HEAD)"; else echo "Nothing to release."; fi
+
+  release:
+    name: Build, tag and publish
+    needs: detect
+    if: needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write          # push the tag, create the release — the only elevated grant
+    outputs:
+      tag: v${{ needs.detect.outputs.version }}
+    env:
+      MISE_LOCKED: "1"
+      VERSION: ${{ needs.detect.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      # The two pinned upstream archives (~23 MB), content-addressed by
+      # sources/upstream.toml; a miss just re-downloads and re-verifies them.
+      - uses: actions/cache@v6
+        with:
+          path: build/upstream
+          key: upstream-${{ hashFiles('sources/upstream.toml') }}
+
+      - run: mise run test
+
+      # ASTERWELL_VERSION is what puts this version in the name table, in
+      # head.fontRevision, in the zip's name and in the release notes; QA also
+      # holds the build to it (FONTLOG.txt's top ChangeLog entry must be this
+      # version). The zip is AsterwellText-<version>.zip.
+      - name: Build, check and package the family as v${{ env.VERSION }}
+        env:
+          ASTERWELL_VERSION: ${{ env.VERSION }}
+        run: mise run package
+
+      # Only now: a failed build above leaves no tag, and the entry stays
+      # pending until the fix merges. Skipped if this is a resumed run whose
+      # tag already points here.
+      - name: Tag this commit
+        run: |
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION already exists (resuming)"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Asterwell Text v$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
+
+      # RELEASE-NOTES.md (written by the `package` run above: the ChangeLog
+      # entry, the upstream pins, the coverage counts, the checksums) is the
+      # body; GitHub's generated commit list is appended below it. The fonts
+      # themselves are deliberately not attached individually — their names
+      # carry the variable-font `[opsz,wght]` convention, which an asset name
+      # is GitHub's to normalise; inside the zip they keep their real names.
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Asterwell Text v${{ env.VERSION }}
+          body_path: fonts/dist/RELEASE-NOTES.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          overwrite_files: true    # a resumed run replaces its own assets
+          files: |
+            fonts/dist/AsterwellText-*.zip
+            fonts/dist/SHA256SUMS.txt
+            OFL.txt
+            DEJAVU-LICENSE.txt
+
+  # The showcase site is deployed from the tag this run just created, by
+  # calling pages.yml. A tag pushed with GITHUB_TOKEN starts no workflow of its
+  # own, which is why the deploy is a job here rather than a `push: tags`
+  # listener. These permissions are the ceiling for the called workflow's own;
+  # a release whose site deploy fails is still a published release.
+  site:
+    name: Deploy the showcase site
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}

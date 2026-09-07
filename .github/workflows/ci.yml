@@ -1,0 +1,118 @@
+# Build the family on every push and pull request, and prove it.
+#
+# The job runs the same mise tasks a person runs locally — nothing here
+# reimplements the build — so a green run means the commands in README's
+# "Building" section work from a clean checkout:
+#
+#   mise run test      unit tests + `uv lock --check` (seconds)
+#   mise run package   fetch -> build -> qa -> specimen -> package (minutes;
+#                      the fontbakery gate over 18 fonts is most of it)
+#
+# The whole `fonts/` tree is uploaded as a run artifact, so a reviewer can
+# open the specimen or read the fontbakery reports without building anything.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, QA and package
+    runs-on: ubuntu-latest
+    # Two full builds (the second is the reproducibility check), each with its
+    # own fontbakery pass over the 18 fonts: about seven minutes apiece when
+    # measured locally. The timeout is a guard against a hang, not a target.
+    timeout-minutes: 60
+    env:
+      # mise.lock records a URL + checksum per tool; install exactly those.
+      # (jdx/mise-action passes --locked itself when a lockfile is present;
+      # this also covers the `mise run` steps below.)
+      MISE_LOCKED: "1"
+    steps:
+      # Full history, for the tags: the ChangeLog check below compares the
+      # entries against every existing v* tag, and `actions/checkout`'s default
+      # depth-1 clone fetches none of them. (The build's own use of git —
+      # `git log -1 --format=%ct` for SOURCE_DATE_EPOCH — resolves either way.)
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Installs python + uv from mise.lock, caches them, and exports
+      # mise.toml's [env] (UV_PYTHON_DOWNLOADS=never) to the steps below.
+      # Its own `github_token` input defaults to the workflow token and is
+      # exported as MISE_GITHUB_TOKEN, so tool lookups are authenticated
+      # without putting a GITHUB_TOKEN in every step's environment.
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      # The two pinned upstream archives (~23 MB) are content-addressed by
+      # sources/upstream.toml; a miss just re-downloads and re-verifies them.
+      - name: Cache the pinned upstream archives
+        uses: actions/cache@v6
+        with:
+          path: build/upstream
+          key: upstream-${{ hashFiles('sources/upstream.toml') }}
+
+      - name: Unit tests and lockfile freshness
+        run: mise run test
+
+      # The release is a FONTLOG.txt ChangeLog entry merged to main, so this is
+      # the gate that keeps a bad one out: a malformed, out-of-order or
+      # duplicate entry fails the pull request here, minutes before it could
+      # fail a release. When the entry is good, the log says what merging it
+      # will publish — informational on a pull request; only a push to main
+      # with FONTLOG.txt changed releases anything (release.yml).
+      - name: What would merging this release?
+        run: |
+          version="$(git tag -l 'v*' | mise exec -- uv run --frozen asterwell-build version --pending)"
+          if [ -n "$version" ]; then
+            echo "FONTLOG.txt's ChangeLog is pending v$version: merging this to main releases it."
+          else
+            echo "No untagged ChangeLog entry: merging this releases nothing."
+          fi
+
+      - name: Build, check and package the family
+        run: mise run package
+
+      # SHA256SUMS.txt covers every built file *and* the release zip, so an
+      # empty diff means the whole family — fonts, web fonts, specimen, QA
+      # reports, archive — came out byte for byte the same from a clean tree.
+      - name: Reproducibility — build again and compare
+        run: |
+          cp fonts/dist/SHA256SUMS.txt "$RUNNER_TEMP/SHA256SUMS.first.txt"
+          rm -rf fonts
+          mise run package
+          diff "$RUNNER_TEMP/SHA256SUMS.first.txt" fonts/dist/SHA256SUMS.txt
+
+      # The showcase site is not part of the release zip, so it is not covered
+      # by the reproducibility diff above and has to be exercised on its own.
+      # Built after it, from the same tree: a failure here is the site
+      # generator's, not a difference between two builds. `fonts/site` then
+      # rides along in the artifact below, so a reviewer can open the page —
+      # and the playground — without building anything.
+      - name: Render the showcase site
+        run: mise run site
+
+      # Uploaded even when a step above failed: a failing QA run's fontbakery
+      # reports are exactly what a reviewer needs. `warn` rather than `error`
+      # for the same reason — after an early failure there may be no tree yet,
+      # and the run is already red for the real reason.
+      - name: Upload the built family
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: asterwell-text-${{ github.sha }}
+          path: fonts
+          if-no-files-found: warn
