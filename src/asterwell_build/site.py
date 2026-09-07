@@ -150,7 +150,7 @@ SECTION_KEY_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 #: Hero specimen material. Type, not copy: it belongs beside the demo blocks in
 #: code rather than in ``site.toml``, which is the page's *words*.
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789"
-HERO_SENTENCE = "Handgloves, a footnote ✽, and the long afternoon of a reading room."
+HERO_SENTENCE = "Handgloves, a footnote ✽, and the long afternoon of a first draft."
 
 #: The ``opsz`` card: one sentence, three settings.
 OPSZ_SENTENCE = "The drawing changes with the size, not just the scale."

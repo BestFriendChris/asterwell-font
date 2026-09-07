@@ -200,9 +200,10 @@ LICENSE_DESCRIPTION = (
 
 #: Name ID 10, templated with ``family`` and ``repo_url``.
 DESCRIPTION = (
-    "{family} is a derivative of Literata by TypeTogether, extended with "
-    "selected symbols and ornaments from DejaVu Sans and an original "
-    "six-petal star family. Glyph provenance: {repo_url}"
+    "{family} is a serif for writing and reading: a derivative of Literata "
+    "by TypeTogether, extended with selected symbols and ornaments from "
+    "DejaVu Sans and an original six-petal star family. "
+    "Glyph provenance: {repo_url}"
 )
 
 

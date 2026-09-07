@@ -10,7 +10,7 @@
 # anchor in the page. Edit the prose freely; the demo keys are code.
 
 title    = "Asterwell Text"
-tagline  = "A literary serif for reading, and for the interface around it"
+tagline  = "A literary serif for writing and reading, and for the interface around the page"
 repo_url = "https://github.com/BestFriendChris/asterwell-font"
 release_url = "https://github.com/BestFriendChris/asterwell-font/releases/latest"
 site_url = "https://bestfriendchris.github.io/asterwell-font/"
@@ -24,7 +24,7 @@ key = "optical"
 heading = "Optical sizes that really change the drawing"
 demo = "opsz"
 body = [
-  "The prose face is Literata, the variable serif TypeTogether drew for long-form reading, carried here unchanged in outline, metric and layout. Its optical-size axis runs from 7 to 72, and it is not a scaling trick: at a footnote size the letters open up, the strokes even out and the spacing loosens, while at a display size the joins tighten and the contrast climbs.",
+  "The prose face is Literata, the variable serif TypeTogether drew for long-form reading — the same qualities that make it a face to draft in for hours — carried here unchanged in outline, metric and layout. Its optical-size axis runs from 7 to 72, and it is not a scaling trick: at a footnote size the letters open up, the strokes even out and the spacing loosens, while at a display size the joins tighten and the contrast climbs.",
   "Say `font-optical-sizing: auto` once and every size on the page gets the drawing that was made for it. The pair below is the same sentence, the same font file and the same weight — only the size differs, and with it the design.",
 ]
 

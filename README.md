@@ -1,15 +1,15 @@
 # Asterwell Text
 
-Asterwell Text is a serif family for reading and for interfaces: the
-Literata prose face, extended with a curated set of symbols, arrows,
-geometric shapes and ornaments that Literata does not cover, plus an
-original six-petal star family. The symbols are scaled to the prose
-face's cap height and stay steady at every weight and optical size, so
-a marker or a keyboard glyph set in running text reads as part of the
-same voice rather than as a pasted-in icon. This
-repository is the build: pinned upstream inputs, a checked-in manifest
-of every code point the family promises, and the pipeline that turns
-them into fonts.
+Asterwell Text is a serif family for writing and reading, and for the
+interface around the text: the Literata prose face, extended with a
+curated set of symbols, arrows, geometric shapes and ornaments that
+Literata does not cover, plus an original six-petal star family. The
+symbols are scaled to the prose face's cap height and stay steady at
+every weight and optical size, so a marker or a keyboard glyph set in
+running text reads as part of the same voice rather than as a pasted-in
+icon. This repository is the build: pinned upstream inputs, a checked-in
+manifest of every code point the family promises, and the pipeline that
+turns them into fonts.
 
 The family is licensed under the SIL Open Font License, Version 1.1
 (`OFL.txt`), with `"Asterwell"` as a Reserved Font Name.

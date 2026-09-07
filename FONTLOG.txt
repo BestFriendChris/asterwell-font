@@ -9,11 +9,11 @@ Text fonts and any derivative works.
 Basic Font Information
 ----------------------
 
-Asterwell Text is a serif text family for reading and for user
-interfaces: a full prose face in roman and italic, plus a curated set of
-symbols, markers and ornaments that share the prose face's colour and
-keep their form at every weight; in the italic the stars turn but do
-not slant.
+Asterwell Text is a serif text family for writing and reading, and for
+the user interface around the text: a full prose face in roman and
+italic, plus a curated set of symbols, markers and ornaments that share
+the prose face's colour and keep their form at every weight; in the
+italic the stars turn but do not slant.
 
     Family      Asterwell Text
     Vendor ID   ASTW
