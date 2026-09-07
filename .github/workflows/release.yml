@@ -1,0 +1,106 @@
+# Publish a GitHub Release when a v* tag is pushed.
+#
+# The release ritual (README, "Releasing"): bump `version` in
+# sources/family.toml, add the FONTLOG.txt ChangeLog line, commit, then
+#
+#   git tag -a v1.000 -m "Asterwell Text 1.000"
+#   git push origin v1.000
+#
+# This workflow refuses to publish a tag that disagrees with
+# sources/family.toml, rebuilds the family from the tagged commit — the same
+# `mise run package` CI runs, so the fontbakery gate has to pass before
+# anything is published — and uploads what that build wrote.
+#
+# It lives in its own file so `contents: write` is scoped to tag pushes and
+# to this one job; CI never has it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (vX.YYY)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # The only elevated grant in the repository, and only for this job:
+      # creating the release and uploading its assets.
+      contents: write
+    env:
+      MISE_LOCKED: "1"
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      # Shallow, and pinned to the tag: on a tag push `github.ref_name` is the
+      # tag; on a manual dispatch it is a branch, so the input decides. The
+      # build's only use of git is `git log -1 --format=%ct` for
+      # SOURCE_DATE_EPOCH, which is the tagged commit's date either way.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      # `mise run setup` is `uv sync --frozen`: it creates .venv from uv.lock
+      # so the version check below runs against the pinned toolchain.
+      - name: Sync the pinned Python environment
+        run: mise run setup
+
+      # Seconds, and it fails before the seven-minute build nobody could
+      # publish. Exits 1 with the remedy spelled out ("either tag `v1.000` or
+      # bump `version` in sources/family.toml") when the two disagree.
+      - name: The tag must match sources/family.toml
+        run: mise exec -- uv run --frozen asterwell-build version --assert-tag "$TAG"
+
+      - name: Unit tests and lockfile freshness
+        run: mise run test
+
+      - name: Build, check and package the family
+        run: mise run package
+
+      # The zip is the release: two variable fonts, sixteen statics, two web
+      # fonts, the specimen, the fontbakery reports, the licences, FONTLOG,
+      # allowlist.tsv and BUILD-INFO.json. SHA256SUMS.txt verifies it and
+      # everything in it; the two licence files ride along so the release
+      # page is licence-complete without a download.
+      #
+      # The fonts themselves are deliberately *not* attached individually:
+      # their names carry the variable-font `[opsz,wght]` convention, and an
+      # asset's download name is GitHub's to normalise (the upload action
+      # documents exactly that for filenames with special characters), so they
+      # could arrive under a name matching neither the README nor
+      # SHA256SUMS.txt. Inside the zip they keep their real names.
+      #
+      # RELEASE-NOTES.md (written by the same `package` run: version, upstream
+      # pins, coverage counts, checksums) is the release body; GitHub's
+      # generated commit list is appended below it.
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Asterwell Text ${{ env.TAG }}
+          body_path: fonts/dist/RELEASE-NOTES.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            fonts/dist/AsterwellText-*.zip
+            fonts/dist/SHA256SUMS.txt
+            OFL.txt
+            DEJAVU-LICENSE.txt
