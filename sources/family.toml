@@ -12,4 +12,5 @@ vendor_id   = "ASTW"
 repo_url    = "https://github.com/BestFriendChris/asterwell-font"
 license_url = "https://openfontlicense.org"
 copyright_holder = "The Asterwell Text Project Authors (https://github.com/BestFriendChris/asterwell-font)"
+copyright_year   = "2026"             # the year on line 1 of OFL.txt; both must agree
 reserved_font_name = "Asterwell"      # "" to declare no Reserved Font Name
